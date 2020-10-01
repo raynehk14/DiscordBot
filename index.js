@@ -44,28 +44,33 @@ class Bot{
 		// this.initChannels();
 	}
 	async initTwitch(){
-		const t = this.twitch = new Twitch(APP_HOST,this.app);
-		await t.init();
+		this.twitch = new Twitch(APP_HOST,this.app);
+		await this.twitch.init();
 		this.client.guilds.cache.map(async guild=>{
-			const twitchStreamers = this.getTwitchStreamers(guild);
-			await t.listenToStreamChange(twitchStreamers,this.getTwitchStreamChangeHandler(this));
+			const twitchStreamers = await this.getTwitchStreamers(guild);
+			await this.subscribeTwitchStreamChange(twitchStreamers,guild);
 		});
 	}
 	async getTwitchStreamers(guild){
-		const twitchStreamers = [];
+		let twitchStreamers = [];
 		try{
 			const str = await this.storage.get(guild.id,'twitch_streamers');
-			console.log(`[bot] twitch_streamers store raw:`,str);
-			const json = JSON.parse(str);
-			twitchStreamers.push(...json);
+			twitchStreamers = JSON.parse(str);
 		}catch(err){
 			console.log(`[bot] twitch_streamers store not found or broken`,err);
 			await this.storage.set(guild.id,'twitch_streamers',JSON.stringify(twitchStreamers));
 		}
 		return twitchStreamers;
 	}
+	async subscribeTwitchStreamChange(twitchStreamers,guild){
+		await this.twitch.subscribeStreamChange(twitchStreamers,this.getTwitchStreamChangeHandler(guild));
+	}
+	async unsubscribeTwitchStreamChange(twitchStreamers,guild){
+		await this.twitch.unsubscribeStreamChange(twitchStreamers);
+	}
 	getTwitchStreamChangeHandler(guild){
 		return async function(stream,liveChange){
+			console.log(`[bot] getTwitchStreamChangeHandler for guild ${guild.id}`);
 			const channel = await this.findChannel(guild,'twitch_streams');
 			switch(liveChange){
 				case 1:
@@ -103,7 +108,7 @@ class Bot{
 		}
 		return channel;
 	}
-	handleMessage(msg){
+	async handleMessage(msg){
 		const guild = msg.guild;
 		const senderIsAdmin = msg.member.permissions.has(Discord.Permissions.MANAGE_SERVER);
 		const isCommand = msg.content[0]=='!';
@@ -122,34 +127,59 @@ class Bot{
 				break;
 				case '!twitch':
 				let changed = false;
-				const streamers = this.getTwitchStreamers(guild);
-				const streamer = args[2];
+				const streamerNames = await this.getTwitchStreamers(guild);
+				const streamerName = args[2];
 				switch(args[1]){
 					case 'list':
-					msg.channel.send(`Twitch Streamers: ${streamers}`);
+					msg.channel.send(`Twitch Streamers: \n${streamerNames.join('\n')}`);
 					break;
 					case 'add':
-					if(streamer&&streamers.indexOf(streamer)<0){
-						streamers.push(streamer);
+					if(streamerName&&streamerNames.indexOf(streamerName)<0){
+						streamerNames.push(streamerName);
+						this.subscribeTwitchStreamChange([streamerName],guild);
 						changed = true;
-						msg.channel.send(`Twitch Streamer added: ${streamer}`);
+						msg.channel.send(`Twitch Streamer added: ${streamerName}`);
 					}else{
-						msg.channel.send(`Twitch Streamer already on the list: ${streamer}`);
+						msg.channel.send(`Twitch Streamer already on the list: ${streamerName}`);
 					}
 					break;
 					case 'delete':
-					if(streamer&&streamers.indexOf(streamer)>=0){
-						streamers.splice(streamers.indexOf(streamer),1);
+					if(streamerName&&streamerNames.indexOf(streamerName)>=0){
+						streamerNames.splice(streamerNames.indexOf(streamerName),1);
+						this.unsubscribeTwitchStreamChange([streamerName],guild);
 						changed = true;
-						msg.channel.send(`Twitch Streamer deleted: ${streamer}`);
+						msg.channel.send(`Twitch Streamer deleted: ${streamerName}`);
 					}else{
-						msg.channel.send(`Twitch Streamer is not on the list: ${streamer}`);
+						msg.channel.send(`Twitch Streamer is not on the list: ${streamerName}`);
+					}
+					break;
+					case 'info':
+					if(streamerName){
+						const streamer = await this.twitch.findUser(streamerName);
+						if(streamer){
+							const channel = msg.channel;//await this.findChannel(guild,'twitch-streams');
+							const stream = await streamer.getStream();
+							const embed = new Discord.MessageEmbed({
+								url: `https://twitch.tv/${streamer.name}`,
+							});
+							if(stream){
+								embed.setTitle(stream.title);
+								embed.setTimestamp(stream.startDate);
+								embed.setThumbnail(streamer.profilePictureUrl.replace('{width}',600).replace('{height}',400));
+								embed.setImage(stream.thumbnailUrl.replace('{width}',600).replace('{height}',400));
+								channel.send(`${streamer.displayName} is live!`,embed);
+							}else{
+								channel.send(`${streamer.displayName} is currently offline!`,embed);
+							}
+						}else{
+							channel.send(`${streamerName} not found!`);
+						}
 					}
 					break;
 				}
 				if(changed){
-					console.log(`[bot] twitch_streamers updated: ${JSON.stringify(streamers)}`);
-					this.storage.set(guild,'twitch_streamers',JSON.stringify(streamers));
+					console.log(`[bot] twitch_streamers updated: ${JSON.stringify(streamerNames)}`);
+					await this.storage.set(guild.id,'twitch_streamers',JSON.stringify(streamerNames));
 				}
 				break;
 				case '!hurb':
