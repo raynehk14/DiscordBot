@@ -17,14 +17,14 @@ class Twitch{
 		const authProvider = new ClientCredentialsAuthProvider(process.env.TWITCH_ID, process.env.TWITCH_SECRET);
 		this.api = new ApiClient({
 			authProvider,
-			logLevel:'TRACE'
+			logLevel:'WARNING'
 		});
 		this.listener = new WebHookListener(this.api, new ReverseProxyAdapter({
 			hostName: this.appHost,
 			listenerPort: WEBHOOK_PORT,
 			pathPrefix: WEBHOOK_CB,
 		}),{
-			logger:{minLevel:'TRACE'}
+			logger:{minLevel:'WARNING'}
 		});
 		this.listener.applyMiddleware(this.app);
 		console.log(`[twitch] init done`);
@@ -40,7 +40,7 @@ class Twitch{
 			for(let i=0,username;username=Object.keys(users)[i];i++){
 				const user = users[username];
 				let prevStream = await user.getStream();
-				console.log(`[twitch] subscribe to stream change for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
+				// console.log(`[twitch] subscribe to stream change for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
 				// await this.listener.subscribeToUserChanges(user, (user)=>{
 				// 	console.log(`[twitch] user change for ${user.displayName}`);
 				// });
@@ -55,15 +55,15 @@ class Twitch{
 					if(stream){
 						if(!prevStream){
 							console.log(`[twitch] ${stream.userDisplayName} just went live with title: ${stream.title}`);
-							callback(stream,1);
+							callback(user,stream);
 						}
 					}else{
 						console.log(`[twitch] ${user.displayName} just went offline`);
-						callback(stream,-1);
+						callback(user,null);
 					}
 					prevStream = stream;
 				});
-				console.log(`[twitch] subscribed to stream change for ${user.displayName}`, subscription.id);
+				console.log(`[twitch] subscribed to stream change (${subscription.id}) for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
 			}
 		}
 	}
