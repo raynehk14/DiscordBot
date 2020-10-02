@@ -9,11 +9,9 @@ const APP_HOST = 'discordbot.rayne14.repl.co';
 class Bot{
 	constructor(app){
 		this.app = app;
-		this.client = new Discord.Client();
+		this.client = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
 		this.storage = new Storage();
-		this.session = {
-			start: Date.now(),
-		};
+		this._roleListeners = [];
 
 		this.client.on('ready', () => {
 			console.log(`[bot] Logged in as ${this.client.user.tag}!`);
@@ -21,15 +19,18 @@ class Bot{
 		});
 
 		this.client.on('message', this.handleMessage.bind(this));
+		this.client.on('messageReactionAdd', this.handleMessageReactionAdd.bind(this));
+		this.client.on('messageReactionRemove', this.handleMessageReactionRemove.bind(this));
 		this.client.login(process.env.DISCORD_TOKEN);
 	}
 	async init(){
-		// start twitch 
+		// storage debugs
 		// await this.storage.delete('Something Here','twitch_streamers');
 		// console.log(`[bot] storage keys`,(await this.storage.list()));
+		// guild listeners
+		this.initGuilds();
+		// start twitch 
 		this.initTwitch();
-		// create channels if needed
-		// this.initChannels();
 	}
 	async initTwitch(){
 		this.twitch = new Twitch(APP_HOST,this.app);
@@ -52,22 +53,13 @@ class Bot{
 			await this.sendTwitchStreamChangeMessage(guild,channel,streamer,stream);
 		};
 	}
-	async initChannels(){
+	async initGuilds(){
 		this.client.guilds.cache.map(async guild=>{
-			const botChannel = await this.findChannel(guild,'bot');
-			const message = await botChannel.send('React for role');
-			const colorRoles = {
-				'red':'🔴',
-				'orange':'🟠',
-				'yellow':'🟡',
-				'green':'🟢',
-				'blue':'🔵',
-				'violet':'🟣',
-				'brown':'🟤',
-			};
-			Object.keys(colorRoles).map(key=>{
-				message.react(colorRoles[key]);
-			});
+			const arr = await this.storage.getRoleAssignmentMessage(guild);
+			const [channelId,messageId] = arr;
+			if(channelId&&messageId){
+				this.addRoleListener(guild,channelId,messageId);
+			}
 		});
 	}
 	async findChannel(guild,name){
@@ -104,22 +96,38 @@ class Bot{
 	findNumberEmoji(i){
 		return (['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'][i])||'';
 	}
+	addRoleListener(guild,channelId,roleMessageId){
+		console.log(`[bot] roleListener added: ${guild.name} in channel ${channelId}, message ${roleMessageId}`);
+		this._roleListeners.push([guild.id,channelId,roleMessageId]);
+	}
+	async handleRoleAssignment(guild,user,emoji,add){
+		const member = guild.member(user);
+		const role = await this.storage.getRoleAssignmentByEmoji(guild,emoji);
+		if(role){
+			if(add){
+				console.log(`[bot] handleRoleAssignment: adding role ${role} to user ${member.displayName}`);
+				member.roles.add(role);
+			}else{
+				console.log(`[bot] handleRoleAssignment: removing role ${role} to user ${member.displayName}`);
+				member.roles.remove(role);
+			}
+		}
+	}
+
 	// the meat of the bot, maybe refactor later
 	async handleMessage(msg){
+		if(!(await this.handlePartialMessage(msg))) return;
+		if(msg.author.id==this.client.user.id) return;
 		const guild = msg.guild;
-		const senderIsAdmin = msg.member.permissions.has(Discord.Permissions.MANAGE_SERVER);
+		const isSenderAdmin = msg.member.permissions.has(Discord.Permissions.MANAGE_SERVER);
 		const isCommand = msg.content[0]=='!';
 		if(isCommand){
 			const args = msg.content.split(' ');
 			const command = args[0].slice(1);
 			const action = args[1];
+			const emptyCommand = args.slice(1).length==0;
+			let cleanup = false;
 			switch(command){
-				case 'roles':
-				if(!senderIsAdmin) break;
-				const roles = msg.guild.roles.cache.filter(role=>!role.name.startsWith('@')&&!role.managed&&!role.deleted);
-				console.log(roles);
-				msg.channel.send(`Roles: \n${roles.map(role=>role.name).join('\n')}`);
-				break;
 				case 'achoo':
 				msg.react('🤧');
 				break;
@@ -129,11 +137,11 @@ class Bot{
 				const streamerName = args[2];
 				switch(action){
 					case 'list':
-					if(!senderIsAdmin) break;
+					if(!isSenderAdmin) break;
 					msg.channel.send(`Twitch Streamers: \n${streamerNames.join('\n')}`);
 					break;
 					case 'add':
-					if(!senderIsAdmin) break;
+					if(!isSenderAdmin) break;
 					if(streamerName&&streamerNames.indexOf(streamerName)<0){
 						streamerNames.push(streamerName);
 						this.subscribeTwitchStreamChange([streamerName],guild);
@@ -144,7 +152,7 @@ class Bot{
 					}
 					break;
 					case 'delete':
-					if(!senderIsAdmin) break;
+					if(!isSenderAdmin) break;
 					if(streamerName&&streamerNames.indexOf(streamerName)>=0){
 						streamerNames.splice(streamerNames.indexOf(streamerName),1);
 						this.unsubscribeTwitchStreamChange([streamerName],guild);
@@ -158,11 +166,10 @@ class Bot{
 					if(streamerName){
 						const streamer = await this.twitch.findUser(streamerName);
 						if(streamer){
-							const channel = msg.channel;
 							const stream = await streamer.getStream();
-							await this.sendTwitchStreamChangeMessage(guild,channel,streamer,stream);
+							await this.sendTwitchStreamChangeMessage(guild,msg.channel,streamer,stream);
 						}else{
-							channel.send(`${streamerName} not found!`);
+							msg.channel.send(`${streamerName} not found!`);
 						}
 					}
 					break;
@@ -173,14 +180,15 @@ class Bot{
 				}
 				break;
 				case 'poll':
-				const pollArgs = args.slice(1);
-				if(pollArgs.length==0){
+				if(emptyCommand){
 					msg.channel.send('Usage: \n`!poll [option1], [option2], ...` or\n`!poll [Title of your poll]: [option1], [option2], ...`(with title) \n');
 					break;
 				}
+				const pollArgs = args.slice(1);
 				const pollEmbed = new Discord.MessageEmbed({
 					footer: {
-						text: `${msg.member.displayName}'s Poll`,
+						text: `${msg.author.displayName}'s Poll`,
+						iconUrl: msg.author.avatarURL(),
 					}
 				});
 				const titleAndOptions = pollArgs.join(' ').split(':');
@@ -206,14 +214,89 @@ class Bot{
 					msg.channel.send(`Commands: \n${commands.map(command=>`!${command}`).join('\n')}`);
 					break;
 					case 'add':
-					if(!senderIsAdmin) break;
+					if(!isSenderAdmin) break;
 					await this.storage.setCustomCommand(guild,args[2],args.slice(3).join(' '));
-					msg.channel.send(`Custom command added: ${args[2]}`);
+					msg.channel.send(`Custom command added by ${msg.author.tag}: ${args[2]}`);
 					break;
 					case 'delete':
-					if(!senderIsAdmin) break;
+					if(!isSenderAdmin) break;
 					await this.storage.deleteCustomCommand(guild,args[2]);
-					msg.channel.send(`Custom command deleted: ${args[2]}`);
+					msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${args[2]}`);
+					break;
+				}
+				break;
+				case 'roles':
+				if(!isSenderAdmin) break;
+				const roles = msg.guild.roles.cache.filter(role=>!role.name.startsWith('@')&&!role.managed&&!role.deleted);
+				msg.channel.send(`Roles: \n${roles.map(role=>`${role.name}:${role.id}`).join('\n')}`);
+				break;
+				case 'role':
+				if(!isSenderAdmin) break;
+				if(emptyCommand){
+					msg.channel.send(`Manage role assignments with bot\nUsage: \`!role [add|delete|list|post]\``);
+				}
+				const roleId = args[2];
+				const emoji = args[3];
+				switch(action){
+					case 'add':{
+						if(!roleId){
+							msg.channel.send(`Usage: \`!role add [roleId] [emoji(optional)]\``);
+							break;
+						}
+						const role = msg.guild.roles.cache.find(r=>r.id==roleId);
+						if(!role){
+							msg.channel.send(`Role not found.\``);
+							break;
+						}
+						await this.storage.addRoleAssignment(guild,roleId,emoji);
+						msg.channel.send(`Role added for react assignment: ${role.name} (emoji: ${emoji})`);
+					}
+					break;
+					case 'delete':{
+						if(!roleId){
+							msg.channel.send(`Usage: \`!role delete [roleId]\``);
+							break;
+						}
+						const role = msg.guild.roles.cache.find(r=>r.id==roleId);
+						if(!role){
+							msg.channel.send(`Role not found.\``);
+							break;
+						}
+						await this.storage.deleteRoleAssignment(guild,roleId,emoji);
+						msg.channel.send(`Role deleted for react assignment: ${role.name}`);
+					}
+					break;
+					case 'list':{
+						const roles = await this.storage.listRoleAssignments(guild);
+						msg.channel.send(`Current roles for react assignment: \n${roles.map(r=>`${r.role.name}: ${r.emoji}`).join('\n')}`);
+					}
+					break;
+					case 'post':{
+						const [channelId,messageId] = await this.storage.getRoleAssignmentMessage(guild);
+						if(channelId&&messageId){
+							try{
+								const postChannel = await guild.channels.cache.get(channelId);
+								const postMessage = await postChannel.messages.fetch(messageId);
+								await postMessage.delete();
+								console.log(`[bot] Deleted old post message in ${postChannel.name}`);
+							}catch(error){
+								console.log(`[bot] Delete old post message error:`,error);
+							}
+						}
+						const roles = await this.storage.listRoleAssignments(guild);
+						const roleMessage = await msg.channel.send(``,(new Discord.MessageEmbed({
+							title: 'React to get a role!',
+							description: `${roles.map(r=>`${r.emoji} - ${r.role.name}`).join('\n')}`
+						})));
+						Object.keys(roles).map((key,i)=>{
+							let emoji = roles[key].emoji;
+							try{if(emoji&&emoji.split) emoji = emoji.split(':')[2].split('>')[0];}catch(err){}
+							roleMessage.react(emoji||this.findNumberEmoji(i));
+						});
+						await this.storage.setRoleAssignmentMessage(guild,roleMessage.channel.id,roleMessage.id);
+						this.addRoleListener(guild,roleMessage.channel.id,roleMessage.id);
+						cleanup = true;
+					}
 					break;
 				}
 				break;
@@ -224,7 +307,47 @@ class Bot{
 				}
 				break;
 			}
+			if(cleanup){
+				msg.delete();
+			}
 		}
+	}
+	async handlePartialMessage(message){
+		if (message.partial) {
+			try {
+				await message.fetch();
+			} catch (error) {
+				console.error('Something went wrong when fetching the message: ', error);
+				return false;
+			}
+		}
+		return true;
+	}
+	async handleMessageReactionAdd(msgReact,user){
+		if(!(await this.handlePartialMessage(msgReact))) return;
+		if(user.id==this.client.user.id) return;
+		const {message,emoji,me} = msgReact;
+		const {guild,channel} = message;
+		// console.log(`[bot] handleMessageReactionAdd ${guild}, ${channel.id}, ${message.id}`);
+		this._roleListeners.map(async(arr)=>{
+			const [guildId,channelId,messageId] = arr;
+			if(guild.id==guildId&&channel.id==channelId&&message.id==messageId){
+				await this.handleRoleAssignment(guild,user,emoji,true);
+			}
+		})
+	}
+	async handleMessageReactionRemove(msgReact,user){
+		if(!(await this.handlePartialMessage(msgReact))) return;
+		if(user.id==this.client.user.id) return;
+		const {message,emoji,me} = msgReact;
+		const {guild,channel} = message;
+		// console.log(`[bot] handleMessageReactionRemove ${guild}, ${channel.id}, ${message.id}`);
+		this._roleListeners.map(async(arr)=>{
+			const [guildId,channelId,messageId] = arr;
+			if(guild.id==guildId&&channel.id==channelId&&message.id==messageId){
+				await this.handleRoleAssignment(guild,user,emoji,false);
+			}
+		})
 	}
 }
 
