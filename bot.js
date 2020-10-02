@@ -124,18 +124,42 @@ class Bot{
 		if(isCommand){
 			const args = msg.content.split(' ');
 			const command = args[0].slice(1);
-			const action = args[1];
-			const emptyCommand = args.slice(1).length==0;
+			const commandArg = args.slice(1);
+			const commandArgRaw = commandArg.join(' ');
+			const emptyCommand = commandArg.length==0;
+			const action = commandArg[0];
 			let cleanup = false;
 			switch(command){
+				case 'help':
+				msg.channel.send(``,new Discord.MessageEmbed({
+					title: 'Command List',
+					description: (
+						'`!poll`\nStart a poll\n\n'+
+						'`!twitch info [streamer name]`\nCheck a twitch streamer\' current stream status\n\n'+
+						'`!custom list`\nList of this server\'s custom commands'+
+						'More commands coming soon (maybe)'
+					)
+				}));
+				break;
 				case 'achoo':
 				msg.react('🤧');
 				break;
 				case 'twitch':
 				let changed = false;
 				const streamerNames = await this.storage.getTwitchStreamers(guild);
-				const streamerName = args[2];
+				const streamerName = commandArg[1];
 				switch(action){
+					case 'info':
+					if(streamerName){
+						const streamer = await this.twitch.findUser(streamerName);
+						if(streamer){
+							const stream = await streamer.getStream();
+							await this.sendTwitchStreamChangeMessage(guild,msg.channel,streamer,stream);
+						}else{
+							msg.channel.send(`${streamerName} not found!`);
+						}
+					}
+					break;
 					case 'list':
 					if(!isSenderAdmin) break;
 					msg.channel.send(`Twitch Streamers: \n${streamerNames.join('\n')}`);
@@ -162,17 +186,6 @@ class Bot{
 						msg.channel.send(`Twitch Streamer is not on the list: ${streamerName}`);
 					}
 					break;
-					case 'info':
-					if(streamerName){
-						const streamer = await this.twitch.findUser(streamerName);
-						if(streamer){
-							const stream = await streamer.getStream();
-							await this.sendTwitchStreamChangeMessage(guild,msg.channel,streamer,stream);
-						}else{
-							msg.channel.send(`${streamerName} not found!`);
-						}
-					}
-					break;
 				}
 				if(changed){
 					console.log(`[bot] twitch_streamers updated: ${JSON.stringify(streamerNames)}`);
@@ -184,14 +197,21 @@ class Bot{
 					msg.channel.send('Usage: \n`!poll [option1], [option2], ...` or\n`!poll [Title of your poll]: [option1], [option2], ...`(with title) \n');
 					break;
 				}
-				const pollArgs = args.slice(1);
+				console.log(msg.author.displayAvatarURL());
 				const pollEmbed = new Discord.MessageEmbed({
 					footer: {
-						text: `${msg.author.displayName}'s Poll`,
-						iconUrl: msg.author.avatarURL(),
+						text: `${msg.member.displayName}'s Poll`,
+						iconUrl: msg.author.displayAvatarURL({
+							size: 16,
+						}),
+					},
+					thumbnail:{
+						url: msg.author.displayAvatarURL({
+							size: 16,
+						}),
 					}
 				});
-				const titleAndOptions = pollArgs.join(' ').split(':');
+				const titleAndOptions = commandArgRaw.split(':');
 				const options = (titleAndOptions.length>1?titleAndOptions.pop():titleAndOptions[0]).split(',').map(option=>option.trim());
 				if(options.length<2) {
 					msg.channel.send('Poll must include at least two options!');
@@ -211,32 +231,35 @@ class Bot{
 					case 'list':
 					const commands = await this.storage.listCustomCommands(guild);
 					console.log(`[bot] commands`,commands);
-					msg.channel.send(`Commands: \n${commands.map(command=>`!${command}`).join('\n')}`);
+					msg.channel.send(``,new Discord.MessageEmbed({
+						title: 'Custom Commands',
+						description: `\n${commands.map(command=>`!${command}`).join('\n')}`
+					}));
 					break;
 					case 'add':
 					if(!isSenderAdmin) break;
-					await this.storage.setCustomCommand(guild,args[2],args.slice(3).join(' '));
-					msg.channel.send(`Custom command added by ${msg.author.tag}: ${args[2]}`);
+					await this.storage.setCustomCommand(guild,commandArg[1],commandArg.slice(1).join(' '));
+					msg.channel.send(`Custom command added by ${msg.author.tag}: ${commandArg[1]}`);
 					break;
 					case 'delete':
 					if(!isSenderAdmin) break;
-					await this.storage.deleteCustomCommand(guild,args[2]);
-					msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${args[2]}`);
+					await this.storage.deleteCustomCommand(guild,commandArg[1]);
+					msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${commandArg[1]}`);
 					break;
 				}
 				break;
-				case 'roles':
+				case 'say':
 				if(!isSenderAdmin) break;
-				const roles = msg.guild.roles.cache.filter(role=>!role.name.startsWith('@')&&!role.managed&&!role.deleted);
-				msg.channel.send(`Roles: \n${roles.map(role=>`${role.name}:${role.id}`).join('\n')}`);
+				msg.channel.send(commandArgRaw);
+				cleanup = true;
 				break;
 				case 'role':
 				if(!isSenderAdmin) break;
 				if(emptyCommand){
 					msg.channel.send(`Manage role assignments with bot\nUsage: \`!role [add|delete|list|post]\``);
 				}
-				const roleId = args[2];
-				const emoji = args[3];
+				const roleId = commandArg[1];
+				const emoji = commandArg[2];
 				switch(action){
 					case 'add':{
 						if(!roleId){
@@ -267,27 +290,50 @@ class Bot{
 					}
 					break;
 					case 'list':{
-						const roles = await this.storage.listRoleAssignments(guild);
-						msg.channel.send(`Current roles for react assignment: \n${roles.map(r=>`${r.role.name}: ${r.emoji}`).join('\n')}`);
+						const roleAssignments = await this.storage.listRoleAssignments(guild);
+						const roleAssignMapById = roleAssignments.reduce((map,role)=>{
+							map[role.roleId] = role;
+							return map;
+						},{});
+						const roles = await msg.guild.roles.cache.filter(role=>!role.name.startsWith('@')&&!role.managed&&!role.deleted).map(role=>{
+							const assignedRole = roleAssignMapById[role.id];
+							return {
+								id: role.id,
+								name: role.name,
+								emoji: assignedRole?assignedRole.emoji:'\`[]\`',
+							}
+						});
+						msg.channel.send(`Roles for react assignment: \n${roles.map(r=>`${r.emoji} - ${r.name} (\`${r.id}\`)`).join('\n')}`);
 					}
 					break;
 					case 'post':{
+						const deleteOld = commandArg[1]=='new';
 						const [channelId,messageId] = await this.storage.getRoleAssignmentMessage(guild);
+						let roleMessage = null;
 						if(channelId&&messageId){
 							try{
 								const postChannel = await guild.channels.cache.get(channelId);
-								const postMessage = await postChannel.messages.fetch(messageId);
-								await postMessage.delete();
-								console.log(`[bot] Deleted old post message in ${postChannel.name}`);
+								roleMessage = await postChannel.messages.fetch(messageId);
+								console.log(`[bot] found old role message in ${postChannel.name}`);
+								if(deleteOld){
+									await roleMessage.delete();
+									roleMessage = null;
+									console.log(`[bot] delete old role message in ${postChannel.name}`);
+								}
 							}catch(error){
-								console.log(`[bot] Delete old post message error:`,error);
+								// console.log(`[bot] find old role message error:`,error);
 							}
 						}
 						const roles = await this.storage.listRoleAssignments(guild);
-						const roleMessage = await msg.channel.send(``,(new Discord.MessageEmbed({
+						const roleMessageEmbed = new Discord.MessageEmbed({
 							title: 'React to get a role!',
 							description: `${roles.map(r=>`${r.emoji} - ${r.role.name}`).join('\n')}`
-						})));
+						});
+						if(roleMessage==null){
+							roleMessage = await msg.channel.send(``,roleMessageEmbed);
+						}else{
+							roleMessage = await roleMessage.edit(``,roleMessageEmbed);
+						}
 						Object.keys(roles).map((key,i)=>{
 							let emoji = roles[key].emoji;
 							try{if(emoji&&emoji.split) emoji = emoji.split(':')[2].split('>')[0];}catch(err){}
