@@ -14,10 +14,12 @@
     "discord.js": "^12.3.1",
     "express": "^4.17.1",
     "http-proxy-middleware": "^1.0.5",
+    "moment": "^2.29.0",
     "morgan": "^1.10.0",
     "request-promise": "^4.2.6",
     "twitch": "^4.2.4",
     "twitch-auth": "^4.2.4",
-    "twitch-webhooks": "^4.2.4"
+    "twitch-webhooks": "^4.2.4",
+    "youtube-v3-api": "^1.1.1"
   }
 }

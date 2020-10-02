@@ -2,22 +2,29 @@
 const Database = require("@replit/database");
 class Storage{
 	constructor(){
-		this.store = new Database();
+		this.storage = new Database();
 	}
 	async get(guild,key){
 		const storeKey = getStoreKey(guild,key);
-		return await this.store.get(storeKey);
+		return await this.storage.get(storeKey);
 	}
 	async set(guild,key,value){
 		const storeKey = getStoreKey(guild,key);
-		return await this.store.set(storeKey,value);
+		return await this.storage.set(storeKey,value);
 	}
 	async delete(guild,key){
 		const storeKey = getStoreKey(guild,key);
-		return await this.store.delete(storeKey);
+		return await this.storage.delete(storeKey);
 	}
 	async list(prefix){
-		return await this.store.list(prefix);
+		return await this.storage.list(prefix);
+	}
+	async deleteWithPrefix(prefix){
+		const keys = await this.storage.list(prefix);
+		keys.map(key=>{
+			// console.log(`[storage] deleting key ${key}`);
+			this.storage.delete(key);
+		});
 	}
 
 	// feature specific commands
