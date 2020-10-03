@@ -3,6 +3,8 @@
 const Discord = require('discord.js');
 const Twitch = require('./twitch');
 const Youtube = require('./youtube');
+const Wikia = require('./wikia');
+const Time = require('./time');
 const Storage = require('./storage');
 
 const APP_HOST = 'discordbot.rayne14.repl.co';
@@ -10,19 +12,19 @@ const APP_HOST = 'discordbot.rayne14.repl.co';
 class Bot{
 	constructor(app){
 		this.app = app;
-		this.client = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
+		this.bot = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
 		this.storage = new Storage();
 		this._roleListeners = [];
 
-		this.client.on('ready', () => {
-			console.log(`[bot] Logged in as ${this.client.user.tag}!`);
+		this.bot.on('ready', () => {
+			console.log(`[bot] Logged in as ${this.bot.user.tag}!`);
 			this.init();
 		});
 		
-		this.client.on('message', this.handleMessage.bind(this));
-		this.client.on('messageReactionAdd', this.handleMessageReactionAdd.bind(this));
-		this.client.on('messageReactionRemove', this.handleMessageReactionRemove.bind(this));
-		this.client.login(process.env.DISCORD_TOKEN);
+		this.bot.on('message', this.handleMessage.bind(this));
+		this.bot.on('messageReactionAdd', this.handleMessageReactionAdd.bind(this));
+		this.bot.on('messageReactionRemove', this.handleMessageReactionRemove.bind(this));
+		this.bot.login(process.env.DISCORD_TOKEN);
 	}
 	async init(){
 		// storage debugs
@@ -39,7 +41,7 @@ class Bot{
 	async initTwitch(){
 		this.twitch = new Twitch(APP_HOST,this.app);
 		await this.twitch.init();
-		this.client.guilds.cache.map(async guild=>{
+		this.bot.guilds.cache.map(async guild=>{
 			const twitchStreamers = await this.storage.getTwitchStreamers(guild);
 			await this.subscribeTwitchStreamChange(twitchStreamers,guild);
 		});
@@ -61,7 +63,7 @@ class Bot{
 		this.youtube = new Youtube(this.storage);
 	}
 	async initGuilds(){
-		this.client.guilds.cache.map(async guild=>{
+		this.bot.guilds.cache.map(async guild=>{
 			const arr = await this.storage.getRoleAssignmentMessage(guild);
 			const [channelId,messageId] = arr;
 			if(channelId&&messageId){
@@ -124,7 +126,7 @@ class Bot{
 	// the meat of the bot, maybe refactor later
 	async handleMessage(msg){
 		if(!(await this.handlePartialMessage(msg))) return;
-		if(msg.author.id==this.client.user.id) return; // skip self messages
+		if(msg.author.id==this.bot.user.id) return; // skip self messages
 		const isCommand = msg.content[0]=='!';
 		if(isCommand){
 			const isSenderAdmin = msg.member.hasPermission('ADMINISTRATOR');
@@ -162,6 +164,15 @@ class Bot{
 				case 'role':
 				await this.handleMessageCommandRole(params);
 				break;
+				case 'wikia':
+				await this.handleMessageCommandWikia(params);
+				break;
+				case 'now':
+				await this.handleMessageCommandNow(params);
+				break;
+				case 'timetill':
+				await this.handleMessageCommandTimeTill(params);
+				break;
 				default:
 				await this.handleMessageCustomCommand(params);
 				break;
@@ -174,8 +185,13 @@ class Bot{
 			description: (
 				'`!poll`\nStart a poll\n\n'+
 				'`!twitch info [streamer name]`\nCheck a twitch streamer\' current stream status\n\n'+
-				'`!youtube [search text]`\nSearch youtube for a video\n\n'+
+				'`!youtube [query]`\nSearch youtube for a video\n\n'+
+				'`!wikia [wikia name]: [query]`\nSearch wikia for an article\ne.g. `!wikia resident evil: claire redfield`\n\n'+
+				'`!now [tz(optional)]`\nCurrent Local Time.  \nNote that query uses tz database/abbreviations so only cities/regions in the database would return a result.  Fallbacks to displaying server time.\ne.g. `!now new york`, `!now est`\n\n'+
+				'`!timetill [time(YYYY-DD-MM hh:mm)], [tz]`\nTime till the input date.\ne.g. `!timetill 2049-10-03 20:49, los angeles`\n\n'+
 				'`!custom list`\nList of this server\'s custom commands\n\n'+
+				'Mod commands\n'+
+				'`!custom add [message]`\nCreate a custom command\n\n'+
 				'More commands coming soon (maybe)'
 			)
 		}));
@@ -296,6 +312,33 @@ class Bot{
 		await msg.channel.send(commandArgRaw);
 		await msg.delete();
 	}
+	async handleMessageCommandNow({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+		const t = Time.nowTZ(commandArgRaw);
+		await msg.channel.send(`\`${t}\``);
+	}
+	async handleMessageCommandTimeTill({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+		const [timeString,timezoneString] = commandArgRaw.split(',');
+		if(!(timeString&&timezoneString)){
+			await msg.channel.send(`Usage: \`!timetill [time(YYYY-DD-MM hh:mm)], [tz]\``);
+			return;
+		}
+		const t = Time.timeTill(timeString.trim(),timezoneString.trim());
+		await msg.channel.send(`\`${t}\``);
+	}
+	async handleMessageCommandWikia({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+		const [w,...q] = commandArgRaw.split(':');
+		if(emptyCommand||q.length==0){
+			await msg.channel.send(`Usage: \`!wikia [wikia name]: [query]\``);
+			return false;
+		}
+		const wikia = new Wikia();
+		const result = await wikia.search(w,q.join(':'));
+		if(result){
+			await msg.channel.send(result.url);
+		}else{
+			await msg.channel.send(`Result not found for ${w}: ${q.join(':')}`);
+		}
+	}
 	async handleMessageCommandRole({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
 		if(!isSenderMod) return false;
 		if(emptyCommand){
@@ -408,7 +451,7 @@ class Bot{
 	}
 	async handleMessageReactionAdd(msgReact,user){
 		if(!(await this.handlePartialMessage(msgReact))) return;
-		if(user.id==this.client.user.id) return;
+		if(user.id==this.bot.user.id) return;
 		const {message,emoji,me} = msgReact;
 		const {guild,channel} = message;
 		// console.log(`[bot] handleMessageReactionAdd ${guild}, ${channel.id}, ${message.id}`);
@@ -421,7 +464,7 @@ class Bot{
 	}
 	async handleMessageReactionRemove(msgReact,user){
 		if(!(await this.handlePartialMessage(msgReact))) return;
-		if(user.id==this.client.user.id) return;
+		if(user.id==this.bot.user.id) return;
 		const {message,emoji,me} = msgReact;
 		const {guild,channel} = message;
 		// console.log(`[bot] handleMessageReactionRemove ${guild}, ${channel.id}, ${message.id}`);
