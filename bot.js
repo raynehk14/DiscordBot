@@ -5,6 +5,7 @@ const Twitch = require('./twitch');
 const Youtube = require('./youtube');
 const Wikia = require('./wikia');
 const Time = require('./time');
+const Misc = require('./misc');
 const Storage = require('./storage');
 
 const APP_HOST = 'discordbot.rayne14.repl.co';
@@ -173,6 +174,12 @@ class Bot{
 				case 'timetill':
 				await this.handleMessageCommandTimeTill(params);
 				break;
+				case 'roll':
+				await this.handleMessageCommandRoll(params);
+				break;
+				case 'flip':
+				await this.handleMessageCommandFlip(params);
+				break;
 				default:
 				await this.handleMessageCustomCommand(params);
 				break;
@@ -189,6 +196,8 @@ class Bot{
 				'`!wikia [wikia name]: [query]`\nSearch wikia for an article\ne.g. `!wikia resident evil: claire redfield`\n\n'+
 				'`!now [tz(optional)]`\nCurrent Local Time.  \nNote that query uses tz database/abbreviations so only cities/regions in the database would return a result.  Fallbacks to displaying server time.\ne.g. `!now new york`, `!now est`\n\n'+
 				'`!timetill [time(YYYY-DD-MM hh:mm)], [tz]`\nTime till the input date.\ne.g. `!timetill 2049-10-03 20:49, los angeles`\n\n'+
+				'`!roll [number of sides(optional, default: 6)]`\nRoll a dice (d4,d6,d8,d10,d20)\n\n'+
+				'`!flip`\nFlip a coin\n\n'+
 				'`!custom list`\nList of this server\'s custom commands\n\n'+
 				'Mod commands\n'+
 				'`!custom add [message]`\nCreate a custom command\n\n'+
@@ -297,7 +306,8 @@ class Bot{
 			break;
 			case 'add':
 			if(!isSenderMod) return false;
-			await this.storage.setCustomCommand(guild,commandArg[1],commandArg.slice(1).join(' '));
+			console.log("add custom",commandArg.slice(2).join(' '));
+			await this.storage.setCustomCommand(guild,commandArg[1],commandArg.slice(2).join(' '));
 			await msg.channel.send(`Custom command added by ${msg.author.tag}: ${commandArg[1]}`);
 			break;
 			case 'delete':
@@ -317,13 +327,56 @@ class Bot{
 		await msg.channel.send(`\`${t}\``);
 	}
 	async handleMessageCommandTimeTill({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
-		const [timeString,timezoneString] = commandArgRaw.split(',');
+		let [eventName, timeString, timezoneString] = commandArgRaw.split(',');
+		let prefix = '';
+		if(Time.isValid(eventName)){
+			// shift
+			timezoneString = timeString;
+			timeString = eventName;
+		}else{
+			switch(action){
+				case 'add':
+				case 'delete':
+				if(!isSenderMod) return;
+				eventName = eventName.split(' ').slice(1).join(' ').trim();
+				// console.log('[bot] timetill add/delete event',eventName,timeString,timezoneString);
+				if(action=='add'){
+					if(!(eventName&&timeString&&timezoneString)){
+						await msg.channel.send(`Usage: \`!timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
+						return;
+					}
+					await this.storage.setTimeTillEvent(guild,eventName,timeString,timezoneString);
+					prefix = `Event \`${eventName}\` added.\n`;
+				}else{
+					if(!eventName){
+						await msg.channel.send(`Usage: \`!timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
+						return;
+					}
+					await this.storage.deleteTimeTillEvent(guild,eventName);
+					await msg.channel.send(`Event \`${eventName}\` removed.`);
+					return;
+				}
+				break;
+				case 'list':
+				const events = await this.storage.listTimeTillEvents(guild);
+				await msg.channel.send(`Events:\n ${events.map(event=>`\`${event}\``).join('\n')}`);
+				return;
+				break;
+				default:
+				// look up saved timetill event
+				eventName = eventName.trim();
+				prefix = `\`${eventName}\`\n`;
+				// console.log('[bot] timetill look up event',eventName,timeString,timezoneString);
+				[timeString, timezoneString] = await this.storage.getTimeTillEvent(guild,eventName);
+				break;
+			}
+		}
 		if(!(timeString&&timezoneString)){
 			await msg.channel.send(`Usage: \`!timetill [time(YYYY-DD-MM hh:mm)], [tz]\``);
 			return;
 		}
 		const t = Time.timeTill(timeString.trim(),timezoneString.trim());
-		await msg.channel.send(`\`${t}\``);
+		await msg.channel.send(`${prefix}\`${t}\``);
 	}
 	async handleMessageCommandWikia({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
 		const [w,...q] = commandArgRaw.split(':');
@@ -431,6 +484,23 @@ class Bot{
 			}
 			break;
 		}
+	}
+	async handleMessageCommandRoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+		try{
+			let sides = parseInt((commandArg[0]||'').trim());
+			if(!Number.isInteger(sides)){
+				sides = 6;
+			}
+			const roll = Misc.roll(sides);
+			const suffix = sides==6?'':` from a d${sides}`;
+			await msg.channel.send(`<@${msg.author.id}>, you rolled a ${roll}${suffix}!`);
+		}catch(error){
+			await msg.channel.send(`${error}`);
+		}
+	}
+	async handleMessageCommandFlip({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+		const roll = Misc.flip();
+		await msg.reply(`${roll==0?'Heads':'Tails'}!`);
 	}
 	async handleMessageCustomCommand({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
 		const m = await this.storage.getCustomCommand(guild,command);

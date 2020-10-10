@@ -52,6 +52,23 @@ class Storage{
 	async listCustomCommands(guild){
 		return (await this.list(getStoreKey(guild,'custom'))).map(key=>key.split(':')[2]);
 	}
+	// timetill events
+	async getTimeTillEvent(guild,eventName){
+		const string = await this.get(guild,`timetill:${eventName}`);
+		if(string){
+			return string.split(',');
+		}
+		return [];
+	}
+	async setTimeTillEvent(guild,eventName,timeString,timezoneString){
+		return await this.set(guild,`timetill:${eventName}`,`${timeString},${timezoneString}`);
+	}
+	async deleteTimeTillEvent(guild,eventName){
+		return await this.delete(guild,`timetill:${eventName}`);
+	}
+	async listTimeTillEvents(guild){
+		return (await this.list(getStoreKey(guild,'timetill'))).map(key=>key.split(':')[2]);
+	}
 	// role assignments
 	async getRoleAssignment(guild,roleId){
 		let roleMap = {};

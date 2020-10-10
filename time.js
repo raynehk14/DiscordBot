@@ -1,6 +1,7 @@
 'use strict';
 const moment = require('moment');
 const momentTZ = require('moment-timezone');
+moment.suppressDeprecationWarnings = true;
 
 const TZ_LIST = moment.tz.names().map(key=>({zone:moment.tz.zone(key),abbr:moment().tz(key).format('z').toLowerCase()}));
 const Time = {
@@ -53,6 +54,13 @@ const Time = {
 			const minuteString = m>0?`${m} minute${m>1?'s':''} `:'';
 			const secondString = s>0?`${s} second${s>1?'s':''} `:'';
 			return `${prefix}${dayString}${hourString}${minuteString}${secondString}${suffix}`.replace(/  /g,' ').trim();
+	},
+	isValid(str){
+		try {
+			return moment(str).isValid();
+		}catch(error){
+			return false;
+		}
 	}
 }
 module.exports = Time;
