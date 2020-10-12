@@ -6,6 +6,7 @@ const Youtube = require('./youtube');
 const Wikia = require('./wikia');
 const Time = require('./time');
 const Misc = require('./misc');
+const Minesweeper = require('./minesweeper');
 const Storage = require('./storage');
 
 const APP_HOST = 'discordbot.rayne14.repl.co';
@@ -180,6 +181,9 @@ class Bot{
 				case 'flip':
 				await this.handleMessageCommandFlip(params);
 				break;
+				case 'mine':
+				await this.handleMessageCommandMinesweeper(params);
+				break;
 				default:
 				await this.handleMessageCustomCommand(params);
 				break;
@@ -198,6 +202,7 @@ class Bot{
 				'`!timetill [time(YYYY-DD-MM hh:mm)], [tz]`\nTime till the input date.\ne.g. `!timetill 2049-10-03 20:49, los angeles`\n\n'+
 				'`!roll [number of sides(optional, default: 6)]`\nRoll a dice (d4,d6,d8,d10,d20)\n\n'+
 				'`!flip`\nFlip a coin\n\n'+
+				'`!mine [width(optional)] [height(optional)] [mine ratio(optional)]`\nCreate a minesweeper board.  Default board is 5x5 with 5% mines.\n\n'+
 				'`!custom list`\nList of this server\'s custom commands\n\n'+
 				'Mod commands\n'+
 				'`!custom add [message]`\nCreate a custom command\n\n'+
@@ -501,6 +506,12 @@ class Bot{
 	async handleMessageCommandFlip({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
 		const roll = Misc.flip();
 		await msg.reply(`${roll==0?'Heads':'Tails'}!`);
+	}
+	async handleMessageCommandMinesweeper({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+		const [x=5,y=5,ratio=0.05] = commandArg;
+		const minesweeper = new Minesweeper(parseInt(x),parseInt(y),parseFloat(ratio));
+		const board = minesweeper.render();
+		await msg.channel.send(`${board}`);
 	}
 	async handleMessageCustomCommand({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
 		const m = await this.storage.getCustomCommand(guild,command);
