@@ -3,15 +3,22 @@ class Minesweeper {
 	mineAdjIcons = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
 	mineIcon = '💥';
 	mineCharacter = 'x';
-	// 5x5, 5% mine ratio
-	constructor(row=5,col=5,mineRatio=0.05){
+	rowMax = 10;
+	colMax = 10;
+	// 5x5, 5% mine ratio 
+	constructor(row=5,col=5,mineRatioOrCount=0.05){
 		// console.log(`new board ${row}x${col}`);
-		this.row = row; this.col = col;
-		this.mineRatio = Math.min(.9,mineRatio); 
-		this.mineCount = Math.ceil(row*col*this.mineRatio);
-		this.board = new Array(col).fill(0).map((r,i)=>{
-			return new Array(row).fill(0);
+		this.row = Math.min(this.rowMax,row); this.col = Math.min(this.colMax,col);
+		if(mineRatioOrCount>1){
+			this.mineCount = parseInt(mineRatioOrCount);
+		}else{
+			mineRatioOrCount = Math.min(.9,mineRatioOrCount); 
+			this.mineCount = Math.ceil(this.row*this.col*mineRatioOrCount);
+		}
+		this.board = new Array(this.col).fill(0).map((r,i)=>{
+			return new Array(this.row).fill(0);
 		});
+		this.mineCount = Math.min(this.row*this.col-1,this.mineCount);
 		// init mines
 		let minesDeployed = 0;
 		while(minesDeployed<this.mineCount){

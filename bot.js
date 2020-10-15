@@ -202,7 +202,7 @@ class Bot{
 				'`!timetill [time(YYYY-DD-MM hh:mm)], [tz]`\nTime till the input date.\ne.g. `!timetill 2049-10-03 20:49, los angeles`\n\n'+
 				'`!roll [number of sides(optional, default: 6)]`\nRoll a dice (d4,d6,d8,d10,d20)\n\n'+
 				'`!flip`\nFlip a coin\n\n'+
-				'`!mine [width(optional)] [height(optional)] [mine ratio(optional)]`\nCreate a minesweeper board.  Default board is 5x5 with 5% mines.\n\n'+
+				'`!mine [width(optional)] [height(optional)] [mine ratio/count(optional)]`\nCreate a minesweeper board.  Default board is 5x5 with 5% mines, max size is 10x10.\ne.g. `!mine 10 10 15` for 10x10 board with 15 mines\n`!mine 5 5 0.5` for 5x5 board with 5% mines\n\n'+
 				'`!custom list`\nList of this server\'s custom commands\n\n'+
 				'Mod commands\n'+
 				'`!custom add [message]`\nCreate a custom command\n\n'+
