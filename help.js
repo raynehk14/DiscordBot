@@ -10,7 +10,7 @@ const Help = {
 		},
 		'reminder':{
 			command:'reminder [add|delete|list] [reminder name(optional)]: [time(YYYY-DD-MM hh:mm)|duration], [tz]',
-			desc:'Set a global reminder (via DM)\ne.g. \`${commandPrefix}reminder add Escape RC: 1998-10-30 10:00, CDT\`\n${commandPrefix}reminder check the oven: 1 hour',
+			desc:'Set a global reminder (via DM)\ne.g. \`${commandPrefix}reminder add Escape RC: 1998-10-30 10:00, CDT\`\n\`${commandPrefix}reminder check the oven: 1 hour\`',
 		},
 		'poll':{
 			command:'poll [Title of your poll(optional)]: [option1], [option2], ...',
@@ -68,7 +68,7 @@ const Help = {
 	},
 	renderHelp:(help,commandPrefix='!')=>{
 		const {command,desc} = help||{command:'',desc:''};
-		return `\`${commandPrefix}${command}\`\n${(desc||'').replace(/\$\{commandPrefix\}/,commandPrefix)}`;
+		return `\`${commandPrefix}${command}\`\n${(desc||'').replace(/\$\{commandPrefix\}/g,commandPrefix)}`;
 	},
 }
 module.exports = Help;
