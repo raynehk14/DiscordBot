@@ -129,24 +129,34 @@ class Bot{
 	async handleMessage(msg){
 		if(!(await this.handlePartialMessage(msg))) return;
 		if(msg.author.id==this.bot.user.id) return; // skip self messages
-		const isCommand = msg.content[0]=='!';
+		const guild = msg.guild;
+		const commandPrefix = await this.storage.getGuildSettings(guild,'commandPrefix')||'!';
+		// console.log(`[bot] guild ${guild.name} is using command prefix ${commandPrefix}`);
+		const isCommand = msg.content.indexOf(commandPrefix)==0;
+		const isSenderAdmin = msg.member.hasPermission('ADMINISTRATOR');
+		const isSenderMod = msg.member.hasPermission(['MANAGE_ROLES','MANAGE_CHANNELS']);
+		const args = msg.content.slice(commandPrefix.length).split(' ');
+		const command = args[0];
+		const commandArg = args.slice(1);
+		const commandArgRaw = commandArg.join(' ');
+		const emptyCommand = commandArg.length==0;
+		const action = commandArg[0];
+		const params = { msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix };
+		// console.log(`[bot] guild ${guild.name} command params:,`, params);
 		if(isCommand){
-			const isSenderAdmin = msg.member.hasPermission('ADMINISTRATOR');
-			const isSenderMod = msg.member.hasPermission(['MANAGE_ROLES','MANAGE_CHANNELS']);
-			const guild = msg.guild;
-			const args = msg.content.split(' ');
-			const command = args[0].slice(1);
-			const commandArg = args.slice(1);
-			const commandArgRaw = commandArg.join(' ');
-			const emptyCommand = commandArg.length==0;
-			const action = commandArg[0];
-			const params = { msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild };
 			switch(command){
 				case 'achoo':
 				msg.react('🤧');
+				msg.reply('bless you!');
+				break;
+				case 'hydrate':
+				msg.channel.send('Reminder to drink water!');
 				break;
 				case 'help':
 				await this.handleMessageCommandHelp(params);
+				break;
+				case 'prefix':
+				await this.handleMessageCommandPrefix(params);
 				break;
 				case 'twitch':
 				await this.handleMessageCommandTwitch(params);
@@ -185,39 +195,63 @@ class Bot{
 				await this.handleMessageCommandMinesweeper(params);
 				break;
 				default:
+				params.command = (command+' '+commandArgRaw).trim();
 				await this.handleMessageCustomCommand(params);
 				break;
 			}
+		}else{
+			const customPrefixOff = await this.storage.getGuildSettings(guild,'customPrefixOff');
+			// console.log(`[bot] customPrefixOff: ${customPrefixOff}`);
+			if(customPrefixOff){
+				const commands = await this.storage.listCustomCommands(guild);
+				for(let i=0,command;command=commands[i];i++){
+					if(msg.content==command){
+						// console.log(`[bot] customPrefixOff command found: ${command}`);
+						params.command = command;
+						await this.handleMessageCustomCommand(params);
+					}
+				}
+			}
 		}
 	}
-	async handleMessageCommandHelp({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandPrefix({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		if(!isSenderMod) return;
+		const prefix = commandArgRaw;
+		if(prefix){
+			await this.storage.setGuildSettings(guild,'commandPrefix',prefix);
+			msg.channel.send(`${prefix} is now the server prefix. \ne.g. use \`${prefix}help\` for help.`);
+		}else{
+			msg.channel.send(`Usage: \`${commandPrefix}prefix [new prefix]\``);
+		}
+	}
+	async handleMessageCommandHelp({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		await msg.channel.send(``,new Discord.MessageEmbed({
 			title: 'Command List',
 			description: (
-				'`!poll`\nStart a poll\n\n'+
-				'`!twitch info [streamer name]`\nCheck a twitch streamer\' current stream status\n\n'+
-				'`!youtube [query]`\nSearch youtube for a video\n\n'+
-				'`!wikia [wikia name]: [query]`\nSearch wikia for an article\ne.g. `!wikia resident evil: claire redfield`\n\n'+
-				'`!now [tz(optional)]`\nCurrent Local Time.  \nNote that query uses tz database/abbreviations so only cities/regions in the database would return a result.  Fallbacks to displaying server time.\ne.g. `!now new york`, `!now est`\n\n'+
-				'`!timetill [time(YYYY-DD-MM hh:mm)], [tz]`\nTime till the input date.\ne.g. `!timetill 2049-10-03 20:49, los angeles`\n\n'+
-				'`!roll [number of sides(optional, default: 6)]`\nRoll a dice (d4,d6,d8,d10,d20)\n\n'+
-				'`!flip`\nFlip a coin\n\n'+
-				'`!mine [width(optional)] [height(optional)] [mine ratio/count(optional)]`\nCreate a minesweeper board.  Default board is 5x5 with 5% mines, max size is 10x10.\ne.g. `!mine 10 10 15` for 10x10 board with 15 mines\n`!mine 5 5 0.5` for 5x5 board with 5% mines\n\n'+
-				'`!custom list`\nList of this server\'s custom commands\n\n'+
-				'Mod commands\n'+
-				'`!custom add [message]`\nCreate a custom command\n\n'+
-				'More commands coming soon (maybe)'
+				`\`${commandPrefix}poll\`\nStart a poll\n\n`+
+				`\`${commandPrefix}twitch info [streamer name]\`\nCheck a twitch streamer\' current stream status\n\n`+
+				`\`${commandPrefix}youtube [query]\`\nSearch youtube for a video\n\n`+
+				`\`${commandPrefix}wikia [wikia name]: [query]\`\nSearch wikia for an article\ne.g. \`${commandPrefix}wikia resident evil: claire redfield\`\n\n`+
+				`\`${commandPrefix}now [tz(optional)]\`\nCurrent Local Time.  \nNote that query uses tz database/abbreviations so only cities/regions in the database would return a result.  Fallbacks to displaying server time.\ne.g. \`${commandPrefix}now new york\`, \`${commandPrefix}now est\`\n\n`+
+				`\`${commandPrefix}timetill [time(YYYY-DD-MM hh:mm)], [tz]\`\nTime till the input date.\ne.g. \`${commandPrefix}timetill 2049-10-03 20:49, los angeles\`\n\n`+
+				`\`${commandPrefix}roll [number of sides(optional, default: 6)]\`\nRoll a dice (d4,d6,d8,d10,d20)\n\n`+
+				`\`${commandPrefix}flip\`\nFlip a coin\n\n`+
+				`\`${commandPrefix}mine [width(optional)] [height(optional)] [mine ratio/count(optional)]\`\nCreate a minesweeper board.  Default board is 5x5 with 5% mines, max size is 10x10.\ne.g. \`${commandPrefix}mine 10 10 15\` for 10x10 board with 15 mines\n\`${commandPrefix}mine 5 5 0.5\` for 5x5 board with 5% mines\n\n`+
+				`\`${commandPrefix}custom list\`\nList of this server\'s custom commands\n\n`+
+				`Mod commands\n`+
+				`\`${commandPrefix}custom add [trigger phrase]: [message]\`\nCreate a custom command\n\n`+
+				`More commands coming soon (maybe)`
 			)
 		}));
 		return true;
 	}
-	async handleMessageCommandYoutube({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandYoutube({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		if(commandArgRaw){
 			const youtubeUrl = await this.youtube.search(commandArgRaw);
 			await msg.channel.send(`${youtubeUrl}`);
 		}
 	}
-	async handleMessageCommandTwitch({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandTwitch({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		let changed = false;
 		const streamerNames = await this.storage.getTwitchStreamers(guild);
 		const streamerName = commandArg[1];
@@ -265,9 +299,9 @@ class Bot{
 			await this.storage.set(guild,'twitch_streamers',JSON.stringify(streamerNames));
 		}
 	}
-	async handleMessageCommandPoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandPoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		if(emptyCommand){
-			await msg.channel.send('Usage: \n`!poll [option1], [option2], ...` or\n`!poll [Title of your poll]: [option1], [option2], ...`(with title) \n');
+			await msg.channel.send(`Usage: \n\`${commandPrefix}poll [option1], [option2], ...\` or\n\`${commandPrefix}poll [Title of your poll]: [option1], [option2], ...\`(with title) \n`);
 			return false;
 		}
 		// console.log(msg.author.displayAvatarURL());
@@ -299,39 +333,67 @@ class Bot{
 			pollMessage.react(`${emoji}`);
 		});
 	}
-	async handleMessageCommandCustom({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandCustom({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		const customPrefixOff = await this.storage.getGuildSettings(guild,'customPrefixOff');
+		let [commandName, ...content] = commandArgRaw.split(':');
+		content = content.join(':');
 		switch(action){
 			case 'list':
 			const commands = await this.storage.listCustomCommands(guild);
 			console.log(`[bot] commands`,commands);
 			await msg.channel.send(``,new Discord.MessageEmbed({
 				title: 'Custom Commands',
-				description: `\n${commands.map(command=>`!${command}`).join('\n')}`
+				description: `\n${commands.map(command=>`${customPrefixOff?'':commandPrefix}${command}`).join('\n')}`
 			}));
 			break;
 			case 'add':
 			if(!isSenderMod) return false;
-			console.log("add custom",commandArg.slice(2).join(' '));
-			await this.storage.setCustomCommand(guild,commandArg[1],commandArg.slice(2).join(' '));
-			await msg.channel.send(`Custom command added by ${msg.author.tag}: ${commandArg[1]}`);
+			commandName = commandName.split(' ').slice(1).join(' ').trim();
+			// console.log(`[bot] add custom command ${commandName}: ${content}`);
+			if(!command||!content){
+				await msg.channel.send(`Usage: \`${commandPrefix}custom add [trigger name]: [content]\``);
+				return false;
+			}
+			await this.storage.setCustomCommand(guild,commandName,content);
+			await msg.channel.send(`Custom command added by ${msg.author.tag}: ${commandName}`);
 			break;
 			case 'delete':
 			if(!isSenderMod) return false;
-			await this.storage.deleteCustomCommand(guild,commandArg[1]);
-			await msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${commandArg[1]}`);
+			commandName = commandName.split(' ').slice(1).join(' ').trim();
+			if(!command){
+				await msg.channel.send(`Usage: \`${commandPrefix}custom delete [trigger name]\``);
+				return false;
+			}
+			await this.storage.deleteCustomCommand(guild,commandName);
+			await msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${commandName}`);
 			break;
+			case 'prefix':
+			if(!isSenderMod) return false;
+			let onOff = commandArg[1];
+			let showUsage = false;
+			switch(onOff){
+				case 'on': await this.storage.setGuildSettings(guild,'customPrefixOff',false); break;
+				case 'off': await this.storage.setGuildSettings(guild,'customPrefixOff',true); break;
+				default:
+				showUsage = true;
+				onOff = customPrefixOff?'off':'on';
+				break;
+			}
+			msg.channel.send(`Prefix is now \`${onOff}\` for custom commands.${
+				showUsage?`\nUsage: \`${commandPrefix}prefix [on|off]\` to turn on/off prefix for custom commands`:''
+			}`);
 		}
 	}
-	async handleMessageCommandSay({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandSay({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		if(!isSenderMod) return false;
 		await msg.channel.send(commandArgRaw);
 		await msg.delete();
 	}
-	async handleMessageCommandNow({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandNow({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		const t = Time.nowTZ(commandArgRaw);
 		await msg.channel.send(`\`${t}\``);
 	}
-	async handleMessageCommandTimeTill({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandTimeTill({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		let [eventName, timeString, timezoneString] = commandArgRaw.split(',');
 		let prefix = '';
 		if(Time.isValid(eventName)){
@@ -347,14 +409,14 @@ class Bot{
 				// console.log('[bot] timetill add/delete event',eventName,timeString,timezoneString);
 				if(action=='add'){
 					if(!(eventName&&timeString&&timezoneString)){
-						await msg.channel.send(`Usage: \`!timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
+						await msg.channel.send(`Usage: \`${commandPrefix}timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
 						return;
 					}
 					await this.storage.setTimeTillEvent(guild,eventName,timeString,timezoneString);
 					prefix = `Event \`${eventName}\` added.\n`;
 				}else{
 					if(!eventName){
-						await msg.channel.send(`Usage: \`!timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
+						await msg.channel.send(`Usage: \`${commandPrefix}timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
 						return;
 					}
 					await this.storage.deleteTimeTillEvent(guild,eventName);
@@ -377,16 +439,16 @@ class Bot{
 			}
 		}
 		if(!(timeString&&timezoneString)){
-			await msg.channel.send(`Usage: \`!timetill [time(YYYY-DD-MM hh:mm)], [tz]\``);
+			await msg.channel.send(`Usage: \`${commandPrefix}timetill [time(YYYY-DD-MM hh:mm)], [tz]\``);
 			return;
 		}
 		const t = Time.timeTill(timeString.trim(),timezoneString.trim());
 		await msg.channel.send(`${prefix}\`${t}\``);
 	}
-	async handleMessageCommandWikia({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandWikia({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		const [w,...q] = commandArgRaw.split(':');
 		if(emptyCommand||q.length==0){
-			await msg.channel.send(`Usage: \`!wikia [wikia name]: [query]\``);
+			await msg.channel.send(`Usage: \`${commandPrefix}wikia [wikia name]: [query]\``);
 			return false;
 		}
 		const wikia = new Wikia();
@@ -397,7 +459,7 @@ class Bot{
 			await msg.channel.send(`Result not found for ${w}: ${q.join(':')}`);
 		}
 	}
-	async handleMessageCommandRole({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandRole({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		if(!isSenderMod) return false;
 		if(emptyCommand){
 			await msg.channel.send(`Manage role assignments with bot\nUsage: \`!role [add|delete|list|post]\``);
@@ -407,7 +469,7 @@ class Bot{
 		switch(action){
 			case 'add':{
 				if(!roleId){
-					await msg.channel.send(`Usage: \`!role add [roleId] [emoji(optional)]\``);
+					await msg.channel.send(`Usage: \`${commandPrefix}role add [roleId] [emoji(optional)]\``);
 					break;
 				}
 				const role = msg.guild.roles.cache.find(r=>r.id==roleId);
@@ -421,7 +483,7 @@ class Bot{
 			break;
 			case 'delete':{
 				if(!roleId){
-					await msg.channel.send(`Usage: \`!role delete [roleId]\``);
+					await msg.channel.send(`Usage: \`${commandPrefix}role delete [roleId]\``);
 					break;
 				}
 				const role = msg.guild.roles.cache.find(r=>r.id==roleId);
@@ -490,7 +552,7 @@ class Bot{
 			break;
 		}
 	}
-	async handleMessageCommandRoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandRoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		try{
 			let sides = parseInt((commandArg[0]||'').trim());
 			if(!Number.isInteger(sides)){
@@ -503,17 +565,18 @@ class Bot{
 			await msg.channel.send(`${error}`);
 		}
 	}
-	async handleMessageCommandFlip({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandFlip({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		const roll = Misc.flip();
 		await msg.reply(`${roll==0?'Heads':'Tails'}!`);
 	}
-	async handleMessageCommandMinesweeper({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCommandMinesweeper({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		const [x=5,y=5,ratio=0.05] = commandArg;
 		const minesweeper = new Minesweeper(parseInt(x),parseInt(y),parseFloat(ratio));
 		const board = minesweeper.render();
 		await msg.channel.send(`${board}`);
 	}
-	async handleMessageCustomCommand({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild }){
+	async handleMessageCustomCommand({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		console.log(`[bot] checking custom command for ${guild.name}: ${command}`);
 		const m = await this.storage.getCustomCommand(guild,command);
 		if(m){
 			await msg.channel.send(m);

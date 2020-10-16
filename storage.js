@@ -23,8 +23,32 @@ class Storage{
 		const keys = await this.storage.list(prefix);
 		keys.map(key=>{
 			// console.log(`[storage] deleting key ${key}`);
-			this.storage.delete(key);
+			this.storage.delete(encodeURI(key));
 		});
+	}
+	// guild settings
+	async getGuildSettings(guild,key){
+		let settings = {};
+		try{
+			const str = await this.get(guild,'settings');
+			settings = JSON.parse(str||'{}');
+		}catch(err){
+			await this.set(guild,'roles',JSON.stringify(settings));
+		}
+		if(key){
+			return settings[key];
+		}
+		return settings;
+	}
+	async setGuildSettings(guild,key,value){
+		const settings = await this.getGuildSettings(guild);
+		settings[key] = value;
+		return await this.set(guild,'settings',JSON.stringify(settings));
+	}
+	async deleteGuildSettings(guild,key){
+		const settings = await this.getGuildSettings(guild);
+		delete settings[key];
+		return await this.set(guild,'settings',JSON.stringify(settings));
 	}
 
 	// feature specific commands
@@ -127,7 +151,7 @@ function getStoreKey(guild,key){
 	if(typeof guild=='object'){
 		guild = guild.id||guild;
 	}
-	return `${guild}:${key}`;
+	return encodeURI(`${guild}:${key}`);
 }
 
 module.exports = Storage;
