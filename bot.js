@@ -6,6 +6,7 @@ const Youtube = require('./youtube');
 const Wikia = require('./wikia');
 const Time = require('./time');
 const Misc = require('./misc');
+const Help = require('./help');
 const Minesweeper = require('./minesweeper');
 const Storage = require('./storage');
 
@@ -16,6 +17,9 @@ class Bot{
 		this.app = app;
 		this.bot = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
 		this.storage = new Storage();
+		this.session = {
+				// reminders: [],
+		};
 		this._roleListeners = [];
 
 		this.bot.on('ready', () => {
@@ -33,6 +37,8 @@ class Bot{
 		// await this.storage.delete('Something Here','twitch_streamers');
 		// console.log(`[bot] storage keys`,(await this.storage.list()));
 		// this.storage.deleteWithPrefix(`youtube:`);
+		// global thread
+		this.startGlobalThread();
 		// guild listeners
 		this.initGuilds();
 		// start twitch 
@@ -71,6 +77,9 @@ class Bot{
 			if(channelId&&messageId){
 				this.addRoleListener(guild,channelId,messageId);
 			}
+			this.session[guild.id] = {
+				helpMessages: {},
+			};
 		});
 	}
 	async findChannel(guild,name){
@@ -80,6 +89,31 @@ class Bot{
 			channel = await guild.channels.create(name);
 		}
 		return channel;
+	}
+	async startGlobalThread(){
+		// await Promise.all((await this.storage.listUsersWithReminders()).map(async ([userId,[reminderName,[time,tz]]])=>{
+		// 	const m = Time.m(time,tz);
+		// 	this.session.reminders.push({userId,m,reminderName,time,tz});
+		// }));
+		this.threadMinuteTick();
+	}
+	async threadMinuteTick(){
+		await Promise.all((await this.storage.listUsersWithReminders()).map(async ([userId,[reminderName,[time,tz]]])=>{
+			const m = Time.m(time,tz);
+		// this.session.reminders = await Promise.all(this.session.reminders.filter(async ({userId,m,reminderName,time,tz})=>{
+			const user = await this.bot.users.fetch(userId);
+			const inThePast = Time.inThePast(m);
+			console.log(`[bot] user ${user.tag} reminder ${reminderName} is in the ${inThePast?'past':'future'}: ${Time.format(m)}`);
+			if(inThePast){
+				user.send(`You asked me to remind you about \`${reminderName}\` on ${time}, ${tz}!`);
+				this.storage.deleteReminder(user.id,reminderName);
+				return false;
+			}
+			return true;
+		}));
+		const msTilNextRoundMinute = Time.msTilNextRoundMinute();
+		setTimeout(()=>this.threadMinuteTick(),msTilNextRoundMinute);
+		// console.log(`[bot] threadMinuteTick msTilNextRoundMinute = ${msTilNextRoundMinute}`);
 	}
 	async sendTwitchStreamChangeMessage(guild,channel,streamer,stream){
 		const embed = new Discord.MessageEmbed({
@@ -124,6 +158,40 @@ class Bot{
 			}
 		}
 	}
+	// additional render helpers
+	async renderMessageCommandHelp(msg,page){
+		const {guild} = msg;
+		this.cleanUpGuildMessageCommandHelp(guild);
+		const commandPrefix = await this.storage.getGuildSettings(guild,'commandPrefix')||'!';
+		const render = (help)=>{
+			return Help.renderHelp(help,commandPrefix);
+		};
+		const helpItems = Help.getPage(page).map(render);
+		const helpItemPages = Help.getPageCount();
+		// console.log(`[bot] help message: render page ${page} (items found: ${helpItems.length})`);
+		if(helpItems.length!=0){
+			await msg.edit(``,new Discord.MessageEmbed({
+				title: 'Command List',
+				description: helpItems.join('\n\n'),
+				footer: {
+					text: `Page ${page+1} of ${helpItemPages}`,
+				},
+			}));
+			this.session[guild.id].helpMessages[msg.id] = page;
+		}
+		['◀','▶'].map(emoji=>{
+			msg.react(emoji);
+		});
+	}
+	// only keep the last 10 messages
+	async cleanUpGuildMessageCommandHelp(guild){
+		const msgIds = Object.keys(this.session[guild.id].helpMessages);
+		const remaining = msgIds.splice(-10); // splice last 10 out
+		msgIds.map(msgId=>{
+			// TODO find a way to clean up reacts
+			delete this.session[guild.id].helpMessages[msgId];
+		});
+	}
 
 	// the meat of the bot, maybe refactor later
 	async handleMessage(msg){
@@ -133,8 +201,8 @@ class Bot{
 		const commandPrefix = await this.storage.getGuildSettings(guild,'commandPrefix')||'!';
 		// console.log(`[bot] guild ${guild.name} is using command prefix ${commandPrefix}`);
 		const isCommand = msg.content.indexOf(commandPrefix)==0;
-		const isSenderAdmin = msg.member.hasPermission('ADMINISTRATOR');
-		const isSenderMod = msg.member.hasPermission(['MANAGE_ROLES','MANAGE_CHANNELS']);
+		const isSenderAdmin = msg.member&&msg.member.hasPermission('ADMINISTRATOR');
+		const isSenderMod = msg.member&&msg.member.hasPermission(['MANAGE_ROLES','MANAGE_CHANNELS']);
 		const args = msg.content.slice(commandPrefix.length).split(' ');
 		const command = args[0];
 		const commandArg = args.slice(1);
@@ -185,6 +253,9 @@ class Bot{
 				case 'timetill':
 				await this.handleMessageCommandTimeTill(params);
 				break;
+				case 'reminder':
+				await this.handleMessageCommandReminder(params);
+				break;
 				case 'roll':
 				await this.handleMessageCommandRoll(params);
 				break;
@@ -225,24 +296,11 @@ class Bot{
 		}
 	}
 	async handleMessageCommandHelp({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
-		await msg.channel.send(``,new Discord.MessageEmbed({
+		const helpMsg = await msg.channel.send(``,new Discord.MessageEmbed({
 			title: 'Command List',
-			description: (
-				`\`${commandPrefix}poll\`\nStart a poll\n\n`+
-				`\`${commandPrefix}twitch info [streamer name]\`\nCheck a twitch streamer\' current stream status\n\n`+
-				`\`${commandPrefix}youtube [query]\`\nSearch youtube for a video\n\n`+
-				`\`${commandPrefix}wikia [wikia name]: [query]\`\nSearch wikia for an article\ne.g. \`${commandPrefix}wikia resident evil: claire redfield\`\n\n`+
-				`\`${commandPrefix}now [tz(optional)]\`\nCurrent Local Time.  \nNote that query uses tz database/abbreviations so only cities/regions in the database would return a result.  Fallbacks to displaying server time.\ne.g. \`${commandPrefix}now new york\`, \`${commandPrefix}now est\`\n\n`+
-				`\`${commandPrefix}timetill [time(YYYY-DD-MM hh:mm)], [tz]\`\nTime till the input date.\ne.g. \`${commandPrefix}timetill 2049-10-03 20:49, los angeles\`\n\n`+
-				`\`${commandPrefix}roll [number of sides(optional, default: 6)]\`\nRoll a dice (d4,d6,d8,d10,d20)\n\n`+
-				`\`${commandPrefix}flip\`\nFlip a coin\n\n`+
-				`\`${commandPrefix}mine [width(optional)] [height(optional)] [mine ratio/count(optional)]\`\nCreate a minesweeper board.  Default board is 5x5 with 5% mines, max size is 10x10.\ne.g. \`${commandPrefix}mine 10 10 15\` for 10x10 board with 15 mines\n\`${commandPrefix}mine 5 5 0.5\` for 5x5 board with 5% mines\n\n`+
-				`\`${commandPrefix}custom list\`\nList of this server\'s custom commands\n\n`+
-				`Mod commands\n`+
-				`\`${commandPrefix}custom add [trigger phrase]: [message]\`\nCreate a custom command\n\n`+
-				`More commands coming soon (maybe)`
-			)
+			description: '',
 		}));
+		this.renderMessageCommandHelp(helpMsg,0);
 		return true;
 	}
 	async handleMessageCommandYoutube({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
@@ -392,6 +450,51 @@ class Bot{
 	async handleMessageCommandNow({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		const t = Time.nowTZ(commandArgRaw);
 		await msg.channel.send(`\`${t}\``);
+	}
+	async handleMessageCommandReminder({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		let [reminderName, ...timeAndTZStringArr] = commandArgRaw.split(':');
+		let [timeString='', timezoneString=''] = (timeAndTZStringArr||[]).join(':').split(',');
+		reminderName = reminderName.split(' ').slice(1).join(' ').trim();
+		// might be duration text
+		const timeIn = Time.timeIn.apply(Time,timeString.trim().split(' '));
+		// console.log(`[bot] reminder timeIn: ${timeIn}`);
+		if(timeIn){
+			timeString = Time.format(timeIn);
+		}
+		if(!timezoneString){
+			timezoneString = Time.defaultTZ();
+		}
+		// console.log(`[bot] reminder ${action}: ${reminderName}, ${timeString}, ${timezoneString}`);
+		switch(action){
+			case 'add':
+			if(!(reminderName&&timeString&&timezoneString)||!Time.isValid(timeString)){
+				await msg.channel.send(`Usage: ${Help.renderHelp(Help.getCommand('reminder'),commandPrefix)}`)
+				return;
+			}
+			const inThePast = Time.inThePast(Time.m(timeString,timezoneString));
+			if(inThePast){
+				return await msg.channel.send(`You can't set a reminder in the past!`);
+			}
+			await this.storage.setReminder(msg.author.id,reminderName,timeString,timezoneString);
+			const t = Time.timeTill(timeString.trim(),timezoneString.trim());
+			await msg.channel.send(`Reminder \`${reminderName}\` added.\n\`${t}\``);
+			return;
+			case 'delete':
+			if(!reminderName){
+				await msg.channel.send(`Usage: ${Help.renderHelp(Help.getCommand('reminder'),commandPrefix)}`)
+				return;
+			}
+			await this.storage.deleteReminder(msg.author.id,reminderName);
+			await msg.channel.send(`Reminder \`${reminderName}\` removed.`);
+			return;
+			case 'list':
+			const reminders = await this.storage.listReminders(msg.author.id);
+			await msg.channel.send(``,new Discord.MessageEmbed({
+				title: `Reminders`,
+				description: reminders.map(([reminderName,[time,tz]])=>`${reminderName}\n\`${time} ${tz}\``).join('\n'),
+			}));
+			return;
+		}
 	}
 	async handleMessageCommandTimeTill({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		let [eventName, timeString, timezoneString] = commandArgRaw.split(',');
@@ -582,6 +685,7 @@ class Bot{
 			await msg.channel.send(m);
 		}
 	}
+	// handle reactions
 	async handlePartialMessage(message){
 		if (message.partial) {
 			try {
@@ -604,7 +708,17 @@ class Bot{
 			if(guild.id==guildId&&channel.id==channelId&&message.id==messageId){
 				await this.handleRoleAssignment(guild,user,emoji,true);
 			}
-		})
+		});
+		// handle help message
+		let helpMessagePage = this.session[guild.id].helpMessages[message.id];
+		if(helpMessagePage!=undefined){
+			switch(emoji.name){
+				case '▶': helpMessagePage++; break;
+				case '◀': helpMessagePage--; break;
+			}
+			this.renderMessageCommandHelp(message,helpMessagePage);
+			msgReact.users.remove(user.id);
+		}
 	}
 	async handleMessageReactionRemove(msgReact,user){
 		if(!(await this.handlePartialMessage(msgReact))) return;

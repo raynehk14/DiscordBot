@@ -19,7 +19,7 @@ const Time = {
 	},
 	guessTZ: (q)=>{
 		if(!q) return null;
-		q = q.replace(/ /g,'_').toLowerCase();
+		q = q.trim().replace(/ /g,'_').toLowerCase();
 		const matches = TZ_LIST.filter(tz=>{
 				const {zone,abbr} = tz;
 				const [region,area] = zone.name.split('/');
@@ -27,10 +27,16 @@ const Time = {
 		});
 		return matches[0]&&matches[0].zone;
 	},
+	defaultTZ:()=>{
+		return 'GMT';//moment.tz.guess();
+	},
+	timeIn(value,unit){
+		const duration = moment.duration(value,unit);
+		if(duration.minutes()==0) return null; // ignore durations under 1 minute
+ 		return moment().add(duration);
+	},
 	timeTill(ts,zs){
-    const zone = Time.guessTZ(zs);
-		// console.log('[time] timetill timezone guess', zone&&zone.name)
-    const target = moment.tz(ts,zone&&zone.name||moment.tz.guess());
+    const target = Time.m(ts,zs);
 		if(!target.isValid()) return 'Invalid Date';
     const now = moment();
     return `${target.format(`YYYY-MM-DD HH:mm Z(z)`)} is ${Time.relativeTimeReadable(now,target)}`;
@@ -55,12 +61,29 @@ const Time = {
 			const secondString = s>0?`${s} second${s>1?'s':''} `:'';
 			return `${prefix}${dayString}${hourString}${minuteString}${secondString}${suffix}`.replace(/  /g,' ').trim();
 	},
+	m(ts,zs){
+    const zone = Time.guessTZ(zs);
+		// console.log('[time] timetill timezone guess', zone&&zone.name)
+    return moment.tz(ts,zone&&zone.name||moment.tz.guess());
+	},
+	now(){
+		return moment();
+	},
+	msTilNextRoundMinute(){
+		return moment().add(1,'m').seconds(0).diff(moment(),'ms');
+	},
+	format(m){
+		return m&&m.format(`YYYY-MM-DD HH:mm`);
+	},
+	inThePast(m){
+		return moment().isSameOrAfter(m);
+	},
 	isValid(str){
 		try {
 			return moment(str).isValid();
 		}catch(error){
 			return false;
 		}
-	}
+	},
 }
 module.exports = Time;

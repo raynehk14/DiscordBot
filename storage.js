@@ -76,6 +76,35 @@ class Storage{
 	async listCustomCommands(guild){
 		return (await this.list(getStoreKey(guild,'custom'))).map(key=>key.split(':')[2]);
 	}
+	// reminders
+	async getReminder(userId,reminderName){
+		const string = await this.get('',`reminders:${userId}:${reminderName}`);
+		if(string){
+			return string.split(',');
+		}
+		return [];
+	}
+	async setReminder(userId,reminderName,timeString,timezoneString){
+		return await this.set('',`reminders:${userId}:${reminderName}`,`${timeString},${timezoneString}`);
+	}
+	async deleteReminder(userId,reminderName){
+		return await this.delete('',`reminders:${userId}:${reminderName}`);
+	}
+	async listReminders(userId){
+		return Promise.all((await this.list(getStoreKey('',`reminders:${userId}`))).map(async key=>{
+			const reminderName = key.split(':')[3];
+			const time = await this.getReminder(userId,reminderName);
+			return [reminderName,time];
+		}));
+	}
+	async listUsersWithReminders(guild){
+		return Promise.all((await this.list(getStoreKey('',`reminders`))).map(async key=>{
+			// console.log(`[storage] list guild users key ${key}`);
+			const [emptyGuildId,reminderText,userId,reminderName] = key.split(':');
+			const reminder = await this.getReminder(userId,reminderName);
+			return [userId,[reminderName,reminder]];
+		}));
+	}
 	// timetill events
 	async getTimeTillEvent(guild,eventName){
 		const string = await this.get(guild,`timetill:${eventName}`);
@@ -148,7 +177,9 @@ class Storage{
 }
 function getStoreKey(guild,key){
 	// console.log(`[store] get key ${guild}, ${key}`);
-	if(typeof guild=='object'){
+	if(!guild){
+		guild = '';
+	}else if(typeof guild=='object'){
 		guild = guild.id||guild;
 	}
 	return encodeURI(`${guild}:${key}`);
