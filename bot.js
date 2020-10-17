@@ -481,14 +481,15 @@ class Bot{
 		reminderName = reminderName.split(' ').slice(1).join(' ').trim();
 		// might be duration text
 		const timeIn = Time.timeIn.apply(Time,timeString.trim().split(' '));
-		// console.log(`[bot] remindme timeIn: ${timeIn}`);
+		// console.log(`[bot] remindme timeIn: ${timeIn}`,timeString.trim().split(' '));
 		if(timeIn){
 			timeString = Time.format(timeIn);
+			// console.log(`[bot] remindme timeIn: ${timeIn}, string ${timeString}`);
 		}
 		if(!timezoneString){
 			timezoneString = Time.defaultTZ();
 		}
-		// console.log(`[bot] remindme ${action}: ${reminderName}, ${timeString}, ${timezoneString}`);
+		console.log(`[bot] remindme ${action}: ${reminderName}, ${timeString}, ${timezoneString}`);
 		switch(action){
 			case 'add':
 			if(!(reminderName&&timeString&&timezoneString)||!Time.isValid(timeString)){
@@ -501,7 +502,7 @@ class Bot{
 			}
 			await this.storage.setRemindMe(msg.author.id,reminderName,timeString,timezoneString);
 			const t = Time.timeTill(timeString.trim(),timezoneString.trim());
-			await msg.author.send(`Remind Me \`${reminderName}\` added.\n\`${t}\``);
+			await msg.channel.send(`Remind Me \`${reminderName}\` added.\n\`${t}\``);
 			return;
 			case 'delete':
 			if(!reminderName){
@@ -509,11 +510,11 @@ class Bot{
 				return;
 			}
 			await this.storage.deleteRemindMe(msg.author.id,reminderName);
-			await msg.author.send(`Remind Me \`${reminderName}\` removed.`);
+			await msg.channel.send(`Remind Me \`${reminderName}\` removed.`);
 			return;
 			case 'list':
 			const reminders = await this.storage.listRemindMes(msg.author.id);
-			await msg.author.send(``,new Discord.MessageEmbed({
+			await msg.channel.send(``,new Discord.MessageEmbed({
 				title: `Reminders`,
 				description: reminders.map(([reminderName,[time,tz]])=>`${reminderName}\n\`${time} ${tz}\``).join('\n'),
 			}));
