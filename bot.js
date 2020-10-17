@@ -210,8 +210,9 @@ class Bot{
 			delete this.session[guild.id].helpMessages[msgId];
 		});
 	}
-	async sendNoPermissionMessage(msg){
-		return await msg.channel.send(`You have insufficient permissions.`);
+	async sendNoPermissionMessage(originalMsg){
+		const msg = await originalMsg.channel.send(`You have insufficient permissions.`);
+		setTimeout(async()=>(await msg.delete()),3000);
 	}
 	// the meat of the bot, maybe refactor later
 	async handleMessage(msg){
