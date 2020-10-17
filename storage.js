@@ -74,35 +74,57 @@ class Storage{
 		return await this.delete(guild,`custom:${command}`);
 	}
 	async listCustomCommands(guild){
-		return (await this.list(getStoreKey(guild,'custom'))).map(key=>key.split(':')[2]);
+		return (await this.list(getStoreKey(guild,'custom:'))).map(key=>key.split(':')[2]);
 	}
-	// reminders
-	async getReminder(userId,reminderName){
-		const string = await this.get('',`reminders:${userId}:${reminderName}`);
+	// remind mes
+	async getRemindMe(userId,reminderName){
+		const string = await this.get('',`remindme:${userId}:${reminderName}`);
 		if(string){
 			return string.split(',');
 		}
 		return [];
 	}
-	async setReminder(userId,reminderName,timeString,timezoneString){
-		return await this.set('',`reminders:${userId}:${reminderName}`,`${timeString},${timezoneString}`);
+	async setRemindMe(userId,reminderName,timeString,timezoneString){
+		return await this.set('',`remindme:${userId}:${reminderName}`,`${timeString},${timezoneString}`);
 	}
-	async deleteReminder(userId,reminderName){
-		return await this.delete('',`reminders:${userId}:${reminderName}`);
+	async deleteRemindMe(userId,reminderName){
+		return await this.delete('',`remindme:${userId}:${reminderName}`);
 	}
-	async listReminders(userId){
-		return Promise.all((await this.list(getStoreKey('',`reminders:${userId}`))).map(async key=>{
+	async listRemindMes(userId){
+		return Promise.all((await this.list(getStoreKey('',`remindme:${userId}:`))).map(async key=>{
 			const reminderName = key.split(':')[3];
-			const time = await this.getReminder(userId,reminderName);
-			return [reminderName,time];
+			const reminder = await this.getRemindMe(userId,reminderName);
+			return [reminderName,reminder];
 		}));
 	}
-	async listUsersWithReminders(guild){
-		return Promise.all((await this.list(getStoreKey('',`reminders`))).map(async key=>{
+	async listUsersWithRemindMes(guild){
+		return Promise.all((await this.list(getStoreKey('',`remindme:`))).map(async key=>{
 			// console.log(`[storage] list guild users key ${key}`);
 			const [emptyGuildId,reminderText,userId,reminderName] = key.split(':');
-			const reminder = await this.getReminder(userId,reminderName);
-			return [userId,[reminderName,reminder]];
+			const remindme = await this.getRemindMe(userId,reminderName);
+			return [userId,[reminderName,remindme]];
+		}));
+	}
+	// reminders
+	async getReminder(guild,reminderName){
+		const string = await this.get(guild,`reminder:${reminderName}`);
+		if(string){
+			return string.split(','); // [channelId,timeString,timezoneString]
+		}
+		return [];
+	}
+	async setReminder(guild,channelId,reminderName,timeString,timezoneString){
+		return await this.set(guild,`reminder:${reminderName}`,`${channelId},${timeString},${timezoneString}`);
+	}
+	async deleteReminder(guild,reminderName){
+		return await this.delete(guild,`reminder:${reminderName}`);
+	}
+	async listReminders(guild){
+		return Promise.all((await this.list(getStoreKey(guild,`reminder:`))).map(async key=>{
+			// console.log(`[storage] listReminders key ${key}`);
+			const reminderName = key.split(':')[2];
+			const reminder = await this.getReminder(guild,reminderName);
+			return [reminderName,reminder,key];
 		}));
 	}
 	// timetill events
@@ -120,7 +142,7 @@ class Storage{
 		return await this.delete(guild,`timetill:${eventName}`);
 	}
 	async listTimeTillEvents(guild){
-		return (await this.list(getStoreKey(guild,'timetill'))).map(key=>key.split(':')[2]);
+		return (await this.list(getStoreKey(guild,'timetill:'))).map(key=>key.split(':')[2]);
 	}
 	// role assignments
 	async getRoleAssignment(guild,roleId){
