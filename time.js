@@ -32,7 +32,7 @@ const Time = {
 	},
 	timeIn(value,unit){
 		const duration = moment.duration(value,unit);
-		if(duration.minutes()==0) return null; // ignore durations under 1 minute
+		if(duration.asMinutes()==0) return null; // ignore durations under 1 minute
  		return moment().add(duration);
 	},
 	timeTill(ts,zs){

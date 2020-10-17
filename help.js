@@ -38,7 +38,7 @@ const Help = {
 		},
 		'remindme':{
 			command:'remindme [add|delete|list] [reminder name(optional)]: [time(YYYY-DD-MM hh:mm)|duration], [tz]',
-			desc:'Set a reminder for yourself (via DM)\ne.g. \`${commandPrefix}remindme add Escape RC: 1998-10-30 10:00, CDT\`\n\`${commandPrefix}remindme check the oven: 1 hour\`',
+			desc:'Set a reminder for yourself (via DM)\ne.g. \`${commandPrefix}remindme add Escape RC: 1998-10-30 10:00, CDT\`\n\`${commandPrefix}remindme add check the oven: 1 hour\`',
 		},
 		'custom':{
 			command:'custom list',
