@@ -91,29 +91,47 @@ class Bot{
 		return channel;
 	}
 	async startGlobalThread(){
-		// await Promise.all((await this.storage.listUsersWithReminders()).map(async ([userId,[reminderName,[time,tz]]])=>{
-		// 	const m = Time.m(time,tz);
-		// 	this.session.reminders.push({userId,m,reminderName,time,tz});
-		// }));
 		this.threadMinuteTick();
 	}
 	async threadMinuteTick(){
-		await Promise.all((await this.storage.listUsersWithReminders()).map(async ([userId,[reminderName,[time,tz]]])=>{
+		// reminders
+		const reminders = (this.bot.guilds.cache.map(async guild=>{
+			await Promise.all((await this.storage.listReminders(guild)).map(async ([reminderName,[channelId,time,tz],storageKey])=>{
+				const m = Time.m(time,tz);
+				const inThePast = Time.inThePast(m);
+				console.log(`[bot] guild ${guild.name} reminder ${reminderName} is in the ${inThePast?'past':'future'}: ${Time.format(m)}`);
+				const channel = guild.channels.cache.find(channel=>channel.id==channelId);
+				if(!channel){
+					console.log(`[bot] guild ${guild.name} reminder ${reminderName} channel(${channelId}) not found, cleaning up possible incorrect syntax reminder ${storageKey}`);
+					await this.storage.deleteWithPrefix(storageKey);
+				}else{
+					if(inThePast){
+						channel.send(``,new Discord.MessageEmbed({
+							title:reminderName,
+							description:'',
+							footer: {
+								text:`Schdueled at ${time}, ${tz}`
+							},
+						}));
+						this.storage.deleteReminder(guild,reminderName);
+					}
+				}
+			}));
+		}));
+		// remind mes
+		const remindmes = ((await this.storage.listUsersWithRemindMes()).map(async ([userId,[reminderName,[time,tz]]])=>{
 			const m = Time.m(time,tz);
-		// this.session.reminders = await Promise.all(this.session.reminders.filter(async ({userId,m,reminderName,time,tz})=>{
 			const user = await this.bot.users.fetch(userId);
 			const inThePast = Time.inThePast(m);
 			console.log(`[bot] user ${user.tag} reminder ${reminderName} is in the ${inThePast?'past':'future'}: ${Time.format(m)}`);
 			if(inThePast){
 				user.send(`You asked me to remind you about \`${reminderName}\` on ${time}, ${tz}!`);
-				this.storage.deleteReminder(user.id,reminderName);
-				return false;
+				this.storage.deleteRemindMe(user.id,reminderName);
 			}
-			return true;
 		}));
+		await Promise.all([...reminders,remindmes]);
 		const msTilNextRoundMinute = Time.msTilNextRoundMinute();
 		setTimeout(()=>this.threadMinuteTick(),msTilNextRoundMinute);
-		// console.log(`[bot] threadMinuteTick msTilNextRoundMinute = ${msTilNextRoundMinute}`);
 	}
 	async sendTwitchStreamChangeMessage(guild,channel,streamer,stream){
 		const embed = new Discord.MessageEmbed({
@@ -253,6 +271,9 @@ class Bot{
 				case 'timetill':
 				await this.handleMessageCommandTimeTill(params);
 				break;
+				case 'remindme':
+				await this.handleMessageCommandRemindMe(params);
+				break;
 				case 'reminder':
 				await this.handleMessageCommandReminder(params);
 				break;
@@ -292,7 +313,7 @@ class Bot{
 			await this.storage.setGuildSettings(guild,'commandPrefix',prefix);
 			msg.channel.send(`${prefix} is now the server prefix. \ne.g. use \`${prefix}help\` for help.`);
 		}else{
-			msg.channel.send(`Usage: \`${commandPrefix}prefix [new prefix]\``);
+			msg.channel.send(Help.renderCommandHelp('prefix',commandPrefix));
 		}
 	}
 	async handleMessageCommandHelp({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
@@ -359,7 +380,7 @@ class Bot{
 	}
 	async handleMessageCommandPoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		if(emptyCommand){
-			await msg.channel.send(`Usage: \n\`${commandPrefix}poll [option1], [option2], ...\` or\n\`${commandPrefix}poll [Title of your poll]: [option1], [option2], ...\`(with title) \n`);
+			await msg.channel.send(Help.renderCommandHelp('poll',commandPrefix));
 			return false;
 		}
 		// console.log(msg.author.displayAvatarURL());
@@ -409,7 +430,7 @@ class Bot{
 			commandName = commandName.split(' ').slice(1).join(' ').trim();
 			// console.log(`[bot] add custom command ${commandName}: ${content}`);
 			if(!command||!content){
-				await msg.channel.send(`Usage: \`${commandPrefix}custom add [trigger name]: [content]\``);
+				await msg.channel.send(Help.renderCommandHelp('custom add',commandPrefix));
 				return false;
 			}
 			await this.storage.setCustomCommand(guild,commandName,content);
@@ -419,7 +440,7 @@ class Bot{
 			if(!isSenderMod) return false;
 			commandName = commandName.split(' ').slice(1).join(' ').trim();
 			if(!command){
-				await msg.channel.send(`Usage: \`${commandPrefix}custom delete [trigger name]\``);
+				await msg.channel.send(Help.renderCommandHelp('custom delete',commandPrefix));
 				return false;
 			}
 			await this.storage.deleteCustomCommand(guild,commandName);
@@ -438,7 +459,7 @@ class Bot{
 				break;
 			}
 			msg.channel.send(`Prefix is now \`${onOff}\` for custom commands.${
-				showUsage?`\nUsage: \`${commandPrefix}prefix [on|off]\` to turn on/off prefix for custom commands`:''
+				showUsage?Help.renderCommandHelp('prefix',commandPrefix):''
 			}`);
 		}
 	}
@@ -451,7 +472,53 @@ class Bot{
 		const t = Time.nowTZ(commandArgRaw);
 		await msg.channel.send(`\`${t}\``);
 	}
+	async handleMessageCommandRemindMe({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		let [reminderName, ...timeAndTZStringArr] = commandArgRaw.split(':');
+		let [timeString='', timezoneString=''] = (timeAndTZStringArr||[]).join(':').split(',');
+		reminderName = reminderName.split(' ').slice(1).join(' ').trim();
+		// might be duration text
+		const timeIn = Time.timeIn.apply(Time,timeString.trim().split(' '));
+		// console.log(`[bot] remindme timeIn: ${timeIn}`);
+		if(timeIn){
+			timeString = Time.format(timeIn);
+		}
+		if(!timezoneString){
+			timezoneString = Time.defaultTZ();
+		}
+		// console.log(`[bot] remindme ${action}: ${reminderName}, ${timeString}, ${timezoneString}`);
+		switch(action){
+			case 'add':
+			if(!(reminderName&&timeString&&timezoneString)||!Time.isValid(timeString)){
+				await msg.channel.send(Help.renderCommandUsage('remindme',commandPrefix));
+				return;
+			}
+			const inThePast = Time.inThePast(Time.m(timeString,timezoneString));
+			if(inThePast){
+				return await msg.channel.send(`You can't set a remind me in the past!`);
+			}
+			await this.storage.setRemindMe(msg.author.id,reminderName,timeString,timezoneString);
+			const t = Time.timeTill(timeString.trim(),timezoneString.trim());
+			await msg.author.send(`Remind Me \`${reminderName}\` added.\n\`${t}\``);
+			return;
+			case 'delete':
+			if(!reminderName){
+				await msg.channel.send(Help.renderCommandUsage('remindme',commandPrefix));
+				return;
+			}
+			await this.storage.deleteRemindMe(msg.author.id,reminderName);
+			await msg.author.send(`Remind Me \`${reminderName}\` removed.`);
+			return;
+			case 'list':
+			const reminders = await this.storage.listRemindMes(msg.author.id);
+			await msg.author.send(``,new Discord.MessageEmbed({
+				title: `Reminders`,
+				description: reminders.map(([reminderName,[time,tz]])=>`${reminderName}\n\`${time} ${tz}\``).join('\n'),
+			}));
+			return;
+		}
+	}
 	async handleMessageCommandReminder({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		if(!isSenderMod) return;
 		let [reminderName, ...timeAndTZStringArr] = commandArgRaw.split(':');
 		let [timeString='', timezoneString=''] = (timeAndTZStringArr||[]).join(':').split(',');
 		reminderName = reminderName.split(' ').slice(1).join(' ').trim();
@@ -468,30 +535,30 @@ class Bot{
 		switch(action){
 			case 'add':
 			if(!(reminderName&&timeString&&timezoneString)||!Time.isValid(timeString)){
-				await msg.channel.send(`Usage: ${Help.renderHelp(Help.getCommand('reminder'),commandPrefix)}`)
+				await msg.channel.send(Help.renderCommandUsage('reminder',commandPrefix));
 				return;
 			}
 			const inThePast = Time.inThePast(Time.m(timeString,timezoneString));
 			if(inThePast){
-				return await msg.channel.send(`You can't set a reminder in the past!`);
+				return await msg.channel.send(`You can't set a remind me in the past!`);
 			}
-			await this.storage.setReminder(msg.author.id,reminderName,timeString,timezoneString);
+			await this.storage.setReminder(guild,msg.channel.id,reminderName,timeString,timezoneString);
 			const t = Time.timeTill(timeString.trim(),timezoneString.trim());
 			await msg.channel.send(`Reminder \`${reminderName}\` added.\n\`${t}\``);
 			return;
 			case 'delete':
 			if(!reminderName){
-				await msg.channel.send(`Usage: ${Help.renderHelp(Help.getCommand('reminder'),commandPrefix)}`)
+				await msg.channel.send(Help.renderCommandUsage('reminder',commandPrefix));
 				return;
 			}
-			await this.storage.deleteReminder(msg.author.id,reminderName);
+			await this.storage.deleteReminder(guild,reminderName);
 			await msg.channel.send(`Reminder \`${reminderName}\` removed.`);
 			return;
 			case 'list':
-			const reminders = await this.storage.listReminders(msg.author.id);
+			const reminders = await this.storage.listReminders(guild);
 			await msg.channel.send(``,new Discord.MessageEmbed({
 				title: `Reminders`,
-				description: reminders.map(([reminderName,[time,tz]])=>`${reminderName}\n\`${time} ${tz}\``).join('\n'),
+				description: reminders.map(([reminderName,[channelId,time,tz]])=>`${reminderName}\n\`${time} ${tz}\``).join('\n'),
 			}));
 			return;
 		}
@@ -512,14 +579,14 @@ class Bot{
 				// console.log('[bot] timetill add/delete event',eventName,timeString,timezoneString);
 				if(action=='add'){
 					if(!(eventName&&timeString&&timezoneString)){
-						await msg.channel.send(`Usage: \`${commandPrefix}timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
+						await msg.channel.send(Help.renderCommandHelp('timetill [add|delete]',commandPrefix));
 						return;
 					}
 					await this.storage.setTimeTillEvent(guild,eventName,timeString,timezoneString);
 					prefix = `Event \`${eventName}\` added.\n`;
 				}else{
 					if(!eventName){
-						await msg.channel.send(`Usage: \`${commandPrefix}timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]\``);
+						await msg.channel.send(Help.renderCommandHelp('timetill [add|delete]',commandPrefix));
 						return;
 					}
 					await this.storage.deleteTimeTillEvent(guild,eventName);
@@ -542,7 +609,7 @@ class Bot{
 			}
 		}
 		if(!(timeString&&timezoneString)){
-			await msg.channel.send(`Usage: \`${commandPrefix}timetill [time(YYYY-DD-MM hh:mm)], [tz]\``);
+			await msg.channel.send(Help.renderCommandHelp('timetill',commandPrefix));
 			return;
 		}
 		const t = Time.timeTill(timeString.trim(),timezoneString.trim());
@@ -551,7 +618,7 @@ class Bot{
 	async handleMessageCommandWikia({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		const [w,...q] = commandArgRaw.split(':');
 		if(emptyCommand||q.length==0){
-			await msg.channel.send(`Usage: \`${commandPrefix}wikia [wikia name]: [query]\``);
+			await msg.channel.send(Help.renderCommandHelp('wikia',commandPrefix));
 			return false;
 		}
 		const wikia = new Wikia();
@@ -565,14 +632,14 @@ class Bot{
 	async handleMessageCommandRole({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
 		if(!isSenderMod) return false;
 		if(emptyCommand){
-			await msg.channel.send(`Manage role assignments with bot\nUsage: \`!role [add|delete|list|post]\``);
+			await msg.channel.send(Help.renderCommandUsage('role',commandPrefix));
 		}
 		const roleId = commandArg[1];
 		const emoji = commandArg[2];
 		switch(action){
 			case 'add':{
 				if(!roleId){
-					await msg.channel.send(`Usage: \`${commandPrefix}role add [roleId] [emoji(optional)]\``);
+					await msg.channel.send(Help.renderCommandUsage('role',commandPrefix));
 					break;
 				}
 				const role = msg.guild.roles.cache.find(r=>r.id==roleId);
@@ -586,7 +653,7 @@ class Bot{
 			break;
 			case 'delete':{
 				if(!roleId){
-					await msg.channel.send(`Usage: \`${commandPrefix}role delete [roleId]\``);
+					await msg.channel.send(Help.renderCommandHelp('role',commandPrefix));
 					break;
 				}
 				const role = msg.guild.roles.cache.find(r=>r.id==roleId);
