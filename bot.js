@@ -210,7 +210,9 @@ class Bot{
 			delete this.session[guild.id].helpMessages[msgId];
 		});
 	}
-
+	async sendNoPermissionMessage(msg){
+		return await msg.channel.send(`You have insufficient permissions.`);
+	}
 	// the meat of the bot, maybe refactor later
 	async handleMessage(msg){
 		if(!(await this.handlePartialMessage(msg))) return;
@@ -307,7 +309,7 @@ class Bot{
 		}
 	}
 	async handleMessageCommandPrefix({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
-		if(!isSenderMod) return;
+		if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 		const prefix = commandArgRaw;
 		if(prefix){
 			await this.storage.setGuildSettings(guild,'commandPrefix',prefix);
@@ -347,11 +349,11 @@ class Bot{
 			}
 			break;
 			case 'list':
-			if(!isSenderMod) return false;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			await msg.channel.send(`Twitch Streamers: \n${streamerNames.join('\n')}`);
 			break;
 			case 'add':
-			if(!isSenderMod) return false;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			if(streamerName&&streamerNames.indexOf(streamerName)<0){
 				streamerNames.push(streamerName);
 				this.subscribeTwitchStreamChange([streamerName],guild);
@@ -362,7 +364,7 @@ class Bot{
 			}
 			break;
 			case 'delete':
-			if(!isSenderMod) return false;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			if(streamerName&&streamerNames.indexOf(streamerName)>=0){
 				streamerNames.splice(streamerNames.indexOf(streamerName),1);
 				this.unsubscribeTwitchStreamChange([streamerName],guild);
@@ -426,7 +428,7 @@ class Bot{
 			}));
 			break;
 			case 'add':
-			if(!isSenderMod) return false;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			commandName = commandName.split(' ').slice(1).join(' ').trim();
 			// console.log(`[bot] add custom command ${commandName}: ${content}`);
 			if(!command||!content){
@@ -437,7 +439,7 @@ class Bot{
 			await msg.channel.send(`Custom command added by ${msg.author.tag}: ${commandName}`);
 			break;
 			case 'delete':
-			if(!isSenderMod) return false;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			commandName = commandName.split(' ').slice(1).join(' ').trim();
 			if(!command){
 				await msg.channel.send(Help.renderCommandUsage('custom delete',commandPrefix));
@@ -447,7 +449,7 @@ class Bot{
 			await msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${commandName}`);
 			break;
 			case 'prefix':
-			if(!isSenderMod) return false;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			let onOff = commandArg[1];
 			let showUsage = false;
 			switch(onOff){
@@ -464,7 +466,7 @@ class Bot{
 		}
 	}
 	async handleMessageCommandSay({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
-		if(!isSenderMod) return false;
+		if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 		await msg.channel.send(commandArgRaw);
 		await msg.delete();
 	}
@@ -518,7 +520,7 @@ class Bot{
 		}
 	}
 	async handleMessageCommandReminder({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
-		if(!isSenderMod) return;
+		if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 		let [reminderName, ...timeAndTZStringArr] = commandArgRaw.split(':');
 		let [timeString='', timezoneString=''] = (timeAndTZStringArr||[]).join(':').split(',');
 		reminderName = reminderName.split(' ').slice(1).join(' ').trim();
@@ -581,7 +583,7 @@ class Bot{
 		switch(action){
 			case 'add':
 			case 'delete':
-			if(!isSenderMod) return;
+			if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 			eventName = eventName.split(' ').slice(1).join(' ').trim();
 			// console.log('[bot] timetill add/delete event',eventName,timeString,timezoneString);
 			if(action=='add'){
@@ -644,7 +646,7 @@ class Bot{
 		}
 	}
 	async handleMessageCommandRole({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
-		if(!isSenderMod) return false;
+		if(!isSenderMod) return this.sendNoPermissionMessage(msg);
 		if(emptyCommand){
 			await msg.channel.send(Help.renderCommandUsage('role',commandPrefix));
 		}
