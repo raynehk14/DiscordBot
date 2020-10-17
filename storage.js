@@ -114,7 +114,7 @@ class Storage{
 		return [];
 	}
 	async setReminder(guild,channelId,reminderName,timeString,timezoneString){
-		return await this.set(guild,`reminder:${reminderName}`,`${channelId},${timeString},${timezoneString}`);
+		return await this.set(guild,`reminder:${reminderName}`,`${channelId},${timeString.trim()},${timezoneString.trim()}`);
 	}
 	async deleteReminder(guild,reminderName){
 		return await this.delete(guild,`reminder:${reminderName}`);
@@ -136,13 +136,18 @@ class Storage{
 		return [];
 	}
 	async setTimeTillEvent(guild,eventName,timeString,timezoneString){
-		return await this.set(guild,`timetill:${eventName}`,`${timeString},${timezoneString}`);
+		return await this.set(guild,`timetill:${eventName}`,`${timeString.trim()},${timezoneString.trim()}`);
 	}
 	async deleteTimeTillEvent(guild,eventName){
 		return await this.delete(guild,`timetill:${eventName}`);
 	}
 	async listTimeTillEvents(guild){
-		return (await this.list(getStoreKey(guild,'timetill:'))).map(key=>key.split(':')[2]);
+		return Promise.all((await this.list(getStoreKey(guild,`timetill:`))).map(async key=>{
+			// console.log(`[storage] listTimeTillEvents key ${key}`);
+			const eventName = key.split(':')[2];
+			const event = await this.getTimeTillEvent(guild,eventName);
+			return [eventName,event,key];
+		}));
 	}
 	// role assignments
 	async getRoleAssignment(guild,roleId){
