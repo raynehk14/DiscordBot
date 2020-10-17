@@ -60,7 +60,7 @@ const Help = {
 			mod:true,
 		},
 		'timetill [add|delete]':{
-			command:'timetill [add|delete] [event name], [time(YYYY-DD-MM hh:mm)], [tz]',
+			command:'timetill [add|delete] [event name]: [time(YYYY-DD-MM hh:mm)], [tz]',
 			mod:true,
 		},
 		'reminder':{
