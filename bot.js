@@ -134,10 +134,11 @@ class Bot{
 		setTimeout(()=>this.threadMinuteTick(),msTilNextRoundMinute);
 	}
 	async sendTwitchStreamChangeMessage(guild,channel,streamer,stream){
+		const tsString = '?'+(Date.now()).toString(16);
 		const embed = new Discord.MessageEmbed({
 			url: `https://twitch.tv/${streamer.name}`,
 			thumbnail: {
-				url: streamer.profilePictureUrl.replace('{width}',600).replace('{height}',400),
+				url: streamer.profilePictureUrl.replace('{width}',600).replace('{height}',400)+tsString,
 				width: 600,
 				height: 400,
 			},
@@ -147,11 +148,11 @@ class Bot{
 			embed.setTitle(stream.title);
 			embed.setTimestamp(stream.startDate);
 			embed.setDescription(`${streamer.displayName} is playing ${game.name}\n\n${streamer.description}`);
-			embed.setImage(stream.thumbnailUrl.replace('{width}',600).replace('{height}',400));
+			embed.setImage(stream.thumbnailUrl.replace('{width}',600).replace('{height}',400)+tsString);
 			channel.send(`${streamer.displayName} is live!`,embed);
 		}else{
 			embed.setTitle(streamer.displayName);
-			embed.setImage(streamer.offlinePlaceholerUrl);
+			embed.setImage(streamer.offlinePlaceholerUrl+tsString);
 			embed.setDescription(`${streamer.description}`);
 			channel.send(`${streamer.displayName} is currently offline!`,embed);
 		}
@@ -168,10 +169,10 @@ class Bot{
 		const role = await this.storage.getRoleAssignmentByEmoji(guild,emoji);
 		if(role){
 			if(add){
-				console.log(`[bot] handleRoleAssignment: adding role ${role} to user ${member.displayName}`);
+				console.log(`[bot][${guild.name}] handleRoleAssignment: adding role ${role} to user ${member.displayName}`);
 				member.roles.add(role);
 			}else{
-				console.log(`[bot] handleRoleAssignment: removing role ${role} from user ${member.displayName}`);
+				console.log(`[bot][${guild.name}] handleRoleAssignment: removing role ${role} from user ${member.displayName}`);
 				member.roles.remove(role);
 			}
 		}
@@ -735,7 +736,7 @@ class Bot{
 				});
 				await this.storage.setRoleAssignmentMessage(guild,roleMessage.channel.id,roleMessage.id);
 				this.addRoleListener(guild,roleMessage.channel.id,roleMessage.id);
-				cleanup = true;
+				msg.delete();
 			}
 			break;
 		}

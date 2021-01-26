@@ -10,6 +10,7 @@ const PORT = 3000;
 
 // app.use(morgan('combined'));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname+'/html/index.html')));
+app.get('/ping', (req, res) => res.sendStatus(200));
 app.listen(PORT, () => console.log(`[main] discord bot app listening at http://localhost:${PORT}`));
 
 const bot = new Bot(app);
