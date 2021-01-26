@@ -698,7 +698,11 @@ class Bot{
 						emoji: assignedRole?assignedRole.emoji:'\`[]\`',
 					}
 				});
-				await msg.channel.send(`Roles for react assignment: \n${roles.map(r=>`${r.emoji} - ${r.name} (\`${r.id}\`)`).join('\n')}`);
+				const roleMessageEmbed = new Discord.MessageEmbed({
+					title: 'Roles for react assignment',
+					description: `${roles.map(r=>`${r.emoji} - <@&${r.id}> (\`${r.id}\`)`).join('\n')}`
+				});
+				await msg.channel.send('',roleMessageEmbed);
 			}
 			break;
 			case 'post':{
@@ -722,7 +726,7 @@ class Bot{
 				const roles = await this.storage.listRoleAssignments(guild);
 				const roleMessageEmbed = new Discord.MessageEmbed({
 					title: 'React to get a role!',
-					description: `${roles.map(r=>`${r.emoji} - ${r.role.name}`).join('\n')}`
+					description: `${roles.map(r=>`${r.emoji} - <@&${r.role.id}>`).join('\n')}`
 				});
 				if(roleMessage==null){
 					roleMessage = await msg.channel.send(``,roleMessageEmbed);
