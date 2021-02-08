@@ -149,6 +149,19 @@ class Storage{
 			return [eventName,event,key];
 		}));
 	}
+	// greeting message
+	async getGreetingMessage(guild){
+		return await this.get(guild,`greet`);
+	}
+	async setGreetingMessage(guild,message){
+		return await this.set(guild,`greet`,`${message.trim()}`);
+	}
+	async getGreetingChannel(guild){
+		return await this.get(guild,`greetChannel`);
+	}
+	async setGreetingChannel(guild,channelId){
+		return await this.set(guild,`greetChannel`,channelId);
+	}
 	// role assignments
 	async getRoleAssignment(guild,roleId){
 		let roleMap = {};
