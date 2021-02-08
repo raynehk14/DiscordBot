@@ -81,6 +81,18 @@ class Bot{
 				helpMessages: {},
 			};
 		});
+		this.bot.on('guildMemberAdd', async member => {
+			const guild = member.guild;
+			const channelId = await this.storage.getGreetingChannel(guild);
+			const greet = await this.storage.getGreetingMessage(guild);
+			// console.log(`[guildMemberAdd] ${guild.name}: ${member.displayName} joined, looking up greeting message... channel: ${channelId}, message: ${!!greet}`);
+			if(greet&&channelId){
+				const channel = guild.channels.cache.get(channelId);
+				if(channel){
+					await channel.send(`<@${member.id}> ${greet}`);
+				}
+			}
+		});
 	}
 	async findChannel(guild,name){
 		let channel = await guild.channels.cache.find((channel)=>channel.name.toLowerCase()==name);
@@ -289,6 +301,9 @@ class Bot{
 				break;
 				case 'mine':
 				await this.handleMessageCommandMinesweeper(params);
+				break;
+				case 'greet':
+				await this.handleMessageCommandGreet(params);
 				break;
 				default:
 				params.command = (command+' '+commandArgRaw).trim();
@@ -520,6 +535,43 @@ class Bot{
 				description: reminders.map(([reminderName,[time,tz]])=>`${reminderName}\n\`${time} ${tz}\``).join('\n'),
 			}));
 			return;
+		}
+	}
+	async handleMessageCommandGreet({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
+		const actionArg = commandArg.slice(1).join(' ');
+		switch(action){
+			case 'msg':
+				if(!isSenderMod) return this.sendNoPermissionMessage(msg);
+				await this.storage.setGreetingMessage(guild,actionArg);
+				await msg.channel.send(`Greeting message set to: \n ${actionArg}`);
+				break;
+			case 'channel':
+				if(!isSenderMod) return this.sendNoPermissionMessage(msg);
+				if(actionArg){
+					const channelId = actionArg;
+					const channel = guild.channels.cache.get(channelId);
+					if(channel){
+						await this.storage.setGreetingChannel(guild,channelId);
+						await msg.channel.send(`Greeting message channel set to: <#${channel.id}>`);
+					}else{
+						await msg.channel.send(`Greeting message channel not set: channel id ${channelId} invalid.`);
+					}
+				}else{
+					const channelId = await this.storage.getGreetingChannel(guild);
+					const channel = guild.channels.cache.get(channelId);
+					if(channel){
+						await msg.channel.send(`Greeting message channel set to: <#${channel.id}>`);
+					}else{
+						await msg.channel.send(`Greeting message channel not set.`);
+					}
+				}
+				break;
+			default:
+				const greet = await this.storage.getGreetingMessage(guild);
+				if(greet){
+					await msg.channel.send(greet);
+				}
+				break;
 		}
 	}
 	async handleMessageCommandReminder({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }){
