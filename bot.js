@@ -113,9 +113,10 @@ class Bot{
 				const inThePast = Time.inThePast(m);
 				// console.log(`[bot] guild ${guild.name} reminder ${reminderName} is in the ${inThePast?'past':'future'}: ${Time.format(m)}`);
 				const channel = guild.channels.cache.find(channel=>channel.id==channelId);
-				if(!channel){
+				if(!channel&&storageKey){
 					console.log(`[bot] guild ${guild.name} reminder ${reminderName} channel(${channelId}) not found, cleaning up possible incorrect syntax reminder ${storageKey}`);
-					await this.storage.deleteWithPrefix(storageKey);
+					// DEBUG - disable delete with prefix to see if this was causing the db wipe issue
+					// await this.storage.deleteWithPrefix(storageKey);
 				}else{
 					if(inThePast){
 						channel.send(``,new Discord.MessageEmbed({
