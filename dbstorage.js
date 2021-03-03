@@ -13,6 +13,9 @@ class DBStorage {
 		console.trace(`[axios] error on ${error&&error.config&&error.config.url}`);
 		throw error;
 	}
+	async setGuildName({id:guildId,name}){
+		await api.post(API_BASE+'/name',{guildId,name}).catch(this.handleError);
+	}
 	// guild settings
 	async getGuildSettings({id:guildId},key){
 		const ret = await api.get(API_BASE+'/settings',{params:{guildId}}).catch(this.handleError);

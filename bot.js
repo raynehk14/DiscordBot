@@ -75,6 +75,9 @@ class Bot {
 	}
 	async initGuilds() {
 		this.bot.guilds.cache.map(async guild => {
+			// update server name on DB for reference
+			DBStorage.setGuildName(guild);
+			// setup messages
 			const {channelId, messageId} = await DBStorage.getRoleAssignmentMessage(guild);
 			if (channelId && messageId) {
 				this.addRoleListener(guild, channelId, messageId);
@@ -87,10 +90,10 @@ class Bot {
 			const guild = member.guild;
 			const {message,channelId} = await DBStorage.getGreetingMessage(guild);
 			// logger.log(`[guildMemberAdd] ${guild.name}: ${member.displayName} joined, looking up greeting message... channel: ${channelId}, message: ${!!greet}`);
-			if (greet && channelId) {
+			if (message && channelId) {
 				const channel = guild.channels.cache.get(channelId);
 				if (channel) {
-					await channel.send(`<@${member.id}> ${greet}`);
+					await channel.send(`<@${member.id}> ${message}`);
 				}
 			}
 		});
@@ -586,7 +589,7 @@ class Bot {
 						await msg.channel.send(`Greeting message channel not set: channel id ${channelId} invalid.`);
 					}
 				} else {
-					const channelId = await this.storage.getGreetingChannel(guild);
+					const {channelId} = await DBStorage.getGreetingMessage(guild);
 					const channel = guild.channels.cache.get(channelId);
 					if (channel) {
 						await msg.channel.send(`Greeting message channel set to: <#${channel.id}>`);
