@@ -109,8 +109,8 @@ class Bot {
 	async threadMinuteTick() {
 		// dbdump
 		if(!this.lastTick||!Time.isSameDay(this.lastTick)){
-			const dump = await this.storage.dump();
-			logger.log('[bot] daily dbdump',`\`\`\`${dump}\`\`\``);
+			// const dump = await this.storage.dump();
+			// logger.log('[bot] daily dbdump',`\`\`\`${dump}\`\`\``);
 		}
 		this.lastTick = Time.now();
 		// reminders
@@ -266,15 +266,15 @@ class Bot {
 		// logger.log(`[bot] guild ${guild.name} command params:,`, params);
 		if (isCommand) {
 			switch (command) {
-				case '_dbdump':
-					if(msg.author.id==process.env.MY_DISCORD_ID){
-						const dump = await this.storage.dump();
-						msg.author.send(``, new Discord.MessageEmbed({
-							title: 'db dump',
-							description: `\`\`\`${dump}\`\`\``,
-						}));
-					}
-					break;
+				// case '_dbdump':
+				// 	if(msg.author.id==process.env.MY_DISCORD_ID){
+				// 		const dump = await this.storage.dump();
+				// 		msg.author.send(``, new Discord.MessageEmbed({
+				// 			title: 'db dump',
+				// 			description: `\`\`\`${dump}\`\`\``,
+				// 		}));
+				// 	}
+				// 	break;
 				case 'achoo':
 					msg.react('🤧');
 					msg.reply('bless you!');
