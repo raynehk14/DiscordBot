@@ -34,12 +34,12 @@ class DBStorage {
 		const ret = await api.get(API_BASE+'/twitchStreamers',{params:{guildId}}).catch(this.handleError);
 		return ret&&ret.data;
 	}
-	async pushTwitchStreamers({id:guildId},streamerName){
-		const ret = await api.post(API_BASE+'/twitchStreamers',{guildId,streamerName}).catch(this.handleError);
+	async pushTwitchStreamer({id:guildId},streamerName){
+		const ret = await api.post(API_BASE+'/twitchStreamer',{guildId,streamerName}).catch(this.handleError);
 		return ret&&ret.data;
 	}
-	async pullTwitchStreamers({id:guildId},streamerName){
-		const ret = await api({method:'DELETE',url:API_BASE+'/twitchStreamers',data:{guildId,streamerName}}).catch(this.handleError);
+	async pullTwitchStreamer({id:guildId},streamerName){
+		const ret = await api({method:'DELETE',url:API_BASE+'/twitchStreamer',data:{guildId,streamerName}}).catch(this.handleError);
 		return ret&&ret.data;
 	}
 	// custom command
