@@ -75,6 +75,9 @@ class Bot {
 	}
 	async initGuilds() {
 		this.bot.guilds.cache.map(async guild => {
+			// update server name on DB for reference
+			DBStorage.setGuildName(guild);
+			// setup messages
 			const {channelId, messageId} = await DBStorage.getRoleAssignmentMessage(guild);
 			if (channelId && messageId) {
 				this.addRoleListener(guild, channelId, messageId);
@@ -87,10 +90,10 @@ class Bot {
 			const guild = member.guild;
 			const {message,channelId} = await DBStorage.getGreetingMessage(guild);
 			// logger.log(`[guildMemberAdd] ${guild.name}: ${member.displayName} joined, looking up greeting message... channel: ${channelId}, message: ${!!greet}`);
-			if (greet && channelId) {
+			if (message && channelId) {
 				const channel = guild.channels.cache.get(channelId);
 				if (channel) {
-					await channel.send(`<@${member.id}> ${greet}`);
+					await channel.send(`<@${member.id}> ${message}`);
 				}
 			}
 		});
@@ -109,8 +112,8 @@ class Bot {
 	async threadMinuteTick() {
 		// dbdump
 		if(!this.lastTick||!Time.isSameDay(this.lastTick)){
-			const dump = await this.storage.dump();
-			logger.log('[bot] daily dbdump',`\`\`\`${dump}\`\`\``);
+			// const dump = await this.storage.dump();
+			// logger.log('[bot] daily dbdump',`\`\`\`${dump}\`\`\``);
 		}
 		this.lastTick = Time.now();
 		// reminders
@@ -266,15 +269,15 @@ class Bot {
 		// logger.log(`[bot] guild ${guild.name} command params:,`, params);
 		if (isCommand) {
 			switch (command) {
-				case '_dbdump':
-					if(msg.author.id==process.env.MY_DISCORD_ID){
-						const dump = await this.storage.dump();
-						msg.author.send(``, new Discord.MessageEmbed({
-							title: 'db dump',
-							description: `\`\`\`${dump}\`\`\``,
-						}));
-					}
-					break;
+				// case '_dbdump':
+				// 	if(msg.author.id==process.env.MY_DISCORD_ID){
+				// 		const dump = await this.storage.dump();
+				// 		msg.author.send(``, new Discord.MessageEmbed({
+				// 			title: 'db dump',
+				// 			description: `\`\`\`${dump}\`\`\``,
+				// 		}));
+				// 	}
+				// 	break;
 				case 'achoo':
 					msg.react('🤧');
 					msg.reply('bless you!');
@@ -586,7 +589,7 @@ class Bot {
 						await msg.channel.send(`Greeting message channel not set: channel id ${channelId} invalid.`);
 					}
 				} else {
-					const channelId = await this.storage.getGreetingChannel(guild);
+					const {channelId} = await DBStorage.getGreetingMessage(guild);
 					const channel = guild.channels.cache.get(channelId);
 					if (channel) {
 						await msg.channel.send(`Greeting message channel set to: <#${channel.id}>`);
