@@ -26,6 +26,10 @@ class Storage{
 			this.storage.delete(encodeURI(key));
 		});
 	}
+	async dump(){
+		const map = await this.storage.getAll();
+		return JSON.stringify(map);
+	}
 	// guild settings
 	async getGuildSettings(guild,key){
 		let settings = {};
