@@ -78,6 +78,9 @@ const Time = {
 	inThePast(m){
 		return moment().isSameOrAfter(m);
 	},
+	isSameDay(m){
+		return moment().isSame(m,'day');
+	},
 	isValid(str){
 		try {
 			return moment(str).isValid();

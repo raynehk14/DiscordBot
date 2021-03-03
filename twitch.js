@@ -1,5 +1,7 @@
 'use strict';
 
+const logger = require('./discordLogger');
+
 const { ApiClient } = require('twitch');
 const { ClientCredentialsAuthProvider } = require('twitch-auth');
 const { ReverseProxyAdapter, SimpleAdapter, WebHookListener } = require('twitch-webhooks');
@@ -13,7 +15,7 @@ class Twitch{
 		this.app = app;
 	}
 	async init(){
-		console.log(`[twitch] init`);
+		// logger.log(`[twitch] init`);
 		const authProvider = new ClientCredentialsAuthProvider(process.env.TWITCH_ID, process.env.TWITCH_SECRET);
 		this.api = new ApiClient({
 			authProvider,
@@ -27,48 +29,48 @@ class Twitch{
 			logger:{minLevel:'WARNING'}
 		});
 		this.listener.applyMiddleware(this.app);
-		console.log(`[twitch] init done`);
+		// logger.log(`[twitch] init done`);
 	}
 	async findUser(twitchUserName){
 		return await this.api.helix.users.getUserByName(twitchUserName);
 	}
 	async subscribeStreamChange(twitchUserNames,callback){
-		// console.log(`[twitch] twitchUserNames`, twitchUserNames);
+		// logger.log(`[twitch] twitchUserNames`, twitchUserNames);
 		const users = await this.api.helix.users.getUsersByNames(twitchUserNames);
 		if(users!=null){
-			console.log(`[twitch] found ${Object.keys(users).length} users`);
+			// logger.log(`[twitch] found ${Object.keys(users).length} users`);
 			for(let i=0,username;username=Object.keys(users)[i];i++){
 				const user = users[username];
 				let prevStream = await user.getStream();
-				// console.log(`[twitch] subscribe to stream change for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
+				// logger.log(`[twitch] subscribe to stream change for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
 				// await this.listener.subscribeToUserChanges(user, (user)=>{
-				// 	console.log(`[twitch] user change for ${user.displayName}`);
+				// 	logger.log(`[twitch] user change for ${user.displayName}`);
 				// });
 				// await this.listener.subscribeToFollowsToUser(user, async (follow)=>{
-				// 	console.log(`[twitch] user follow for ${(await follow.getFollowedUser()).displayName} from ${(await follow.getUser()).displayName}`);
+				// 	logger.log(`[twitch] user follow for ${(await follow.getFollowedUser()).displayName} from ${(await follow.getUser()).displayName}`);
 				// });
 				// await this.listener.subscribeToSubscriptionEvents(user, async (sub)=>{
-				// 	console.log(`[twitch] user sub for ${(await sub.getBroadcaster()).displayName} from ${(await sub.getUser()).displayName}`);
+				// 	logger.log(`[twitch] user sub for ${(await sub.getBroadcaster()).displayName} from ${(await sub.getUser()).displayName}`);
 				// });
 				const subscription = await this.listener.subscribeToStreamChanges(user, (stream)=>{
-					console.log(`[twitch] stream change for ${user.displayName}...`);
+					logger.log(`[twitch] stream change for ${user.displayName}...`);
 					if(stream){
 						if(!prevStream){
-							console.log(`[twitch] ${stream.userDisplayName} just went live with title: ${stream.title}`);
+							logger.log(`[twitch] ${stream.userDisplayName} just went live with title: ${stream.title}`);
 							callback(user,stream);
 						}
 					}else{
-						console.log(`[twitch] ${user.displayName} just went offline`);
+						logger.log(`[twitch] ${user.displayName} just went offline`);
 						callback(user,null);
 					}
 					prevStream = stream;
 				});
-				console.log(`[twitch] subscribed to stream change (${subscription.id}) for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
+				logger.log(`[twitch] subscribed to stream change (${subscription.id}) for ${user.displayName} (currently: ${prevStream!=null?'live':'not live'})`);
 			}
 		}
 	}
 	async unsubscribeStreamChange(twitchUserNames){
-		console.log('[bot] TODO unsubscribe',twitchUserNames);
+		logger.log('[bot] TODO unsubscribe',twitchUserNames);
 	}
 }
 
