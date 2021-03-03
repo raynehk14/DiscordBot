@@ -9,6 +9,7 @@ const Misc = require('./misc');
 const Help = require('./help');
 const Minesweeper = require('./minesweeper');
 const Storage = require('./storage');
+const DBStorage = require('./dbstorage');
 const logger = require('./discordLogger');
 
 const APP_HOST = 'discordbot.rayne14.repl.co';
@@ -52,7 +53,7 @@ class Bot {
 		this.twitch = new Twitch(APP_HOST, this.app);
 		await this.twitch.init();
 		this.bot.guilds.cache.map(async guild => {
-			const twitchStreamers = await this.storage.getTwitchStreamers(guild);
+			const twitchStreamers = await DBStorage.getTwitchStreamers(guild);
 			await this.subscribeTwitchStreamChange(twitchStreamers, guild);
 		});
 	}
@@ -74,8 +75,7 @@ class Bot {
 	}
 	async initGuilds() {
 		this.bot.guilds.cache.map(async guild => {
-			const arr = await this.storage.getRoleAssignmentMessage(guild);
-			const [channelId, messageId] = arr;
+			const {channelId, messageId} = await DBStorage.getRoleAssignmentMessage(guild);
 			if (channelId && messageId) {
 				this.addRoleListener(guild, channelId, messageId);
 			}
@@ -85,8 +85,7 @@ class Bot {
 		});
 		this.bot.on('guildMemberAdd', async member => {
 			const guild = member.guild;
-			const channelId = await this.storage.getGreetingChannel(guild);
-			const greet = await this.storage.getGreetingMessage(guild);
+			const {message,channelId} = await DBStorage.getGreetingMessage(guild);
 			// logger.log(`[guildMemberAdd] ${guild.name}: ${member.displayName} joined, looking up greeting message... channel: ${channelId}, message: ${!!greet}`);
 			if (greet && channelId) {
 				const channel = guild.channels.cache.get(channelId);
@@ -116,13 +115,15 @@ class Bot {
 		this.lastTick = Time.now();
 		// reminders
 		const reminders = (this.bot.guilds.cache.map(async guild => {
-			await Promise.all((await this.storage.listReminders(guild)).map(async ([reminderName, [channelId, time, tz], storageKey]) => {
-				const m = Time.m(time, tz);
+			const reminders = await DBStorage.listReminders(guild);
+			await Promise.all(Object.keys(reminders).map(async reminderName => {
+				const {timeString,timezoneString,channelId} = reminders[reminderName];
+				const m = Time.m(timeString, timezoneString);
 				const inThePast = Time.inThePast(m);
 				// logger.log(`[bot] guild ${guild.name} reminder ${reminderName} is in the ${inThePast?'past':'future'}: ${Time.format(m)}`);
 				const channel = guild.channels.cache.find(channel => channel.id == channelId);
-				if (!channel && storageKey) {
-					logger.log(`[bot] guild ${guild.name} reminder ${reminderName} channel(${channelId}) not found, cleaning up possible incorrect syntax reminder ${storageKey}`);
+				if (!channel && reminderName) {
+					logger.log(`[bot] guild ${guild.name} reminder ${reminderName} channel(${channelId}) not found, TODO: clean up possible incorrect syntax reminder ${reminderName}`);
 					// DEBUG - disable delete with prefix to see if this was causing the db wipe issue
 					// await this.storage.deleteWithPrefix(storageKey);
 				} else {
@@ -131,26 +132,34 @@ class Bot {
 							title: reminderName,
 							description: '',
 							footer: {
-								text: `Schdueled at ${time}, ${tz}`
+								text: `Schdueled at ${timeString}, ${timezoneString}`
 							},
 						}));
-						this.storage.deleteReminder(guild, reminderName);
+						DBStorage.deleteReminder(guild, reminderName);
 					}
 				}
 			}));
 		}));
 		// remind mes
-		const remindmes = ((await this.storage.listUsersWithRemindMes()).map(async ([userId, [reminderName, [time, tz]]]) => {
-			const m = Time.m(time, tz);
-			const user = await this.bot.users.fetch(userId);
-			const inThePast = Time.inThePast(m);
-			logger.log(`[bot] user ${user.tag} reminder ${reminderName} is in the ${inThePast ? 'past' : 'future'}: ${Time.format(m)}`);
-			if (inThePast) {
-				user.send(`You asked me to remind you about \`${reminderName}\` on ${time}, ${tz}!`);
-				this.storage.deleteRemindMe(user.id, reminderName);
-			}
+		const userEvents = ((await DBStorage.listUsersWithEvents()).map(async ({_id:userId,events}) => {
+			Object.keys(events).map(async eventName=>{
+				const {timeString, timezoneString} = events[eventName];
+				const m = Time.m(timeString, timezoneString);
+				try{
+					const user = await this.bot.users.fetch(userId);
+					const inThePast = Time.inThePast(m);
+					loggerr.log(`[bot] user ${user.tag} reminder ${eventName} is in the ${inThePast ? 'past' : 'future'}: ${Time.format(m)}`);
+					if (inThePast) {
+						user.send(`You asked me to remind you about \`${eventName}\` on ${timeString}, ${timezoneString}!`);
+						DBStorage.deleteUserEvent(user.id, eventName);
+					}
+				}catch(error){
+					// auto delete on error
+					DBStorage.deleteUserEvent(userId, eventName);
+				}
+			});
 		}));
-		await Promise.all([...reminders, remindmes]);
+		await Promise.all([...reminders, userEvents]);
 		const msTilNextRoundMinute = Time.msTilNextRoundMinute();
 		setTimeout(() => this.threadMinuteTick(), msTilNextRoundMinute);
 	}
@@ -187,7 +196,7 @@ class Bot {
 	}
 	async handleRoleAssignment(guild, user, emoji, add) {
 		const member = guild.member(user);
-		const role = await this.storage.getRoleAssignmentByEmoji(guild, emoji);
+		const role = await DBStorage.getRoleAssignmentByEmoji(guild, emoji);
 		if (role) {
 			if (add) {
 				logger.log(`[bot][${guild.name}] handleRoleAssignment: adding role ${role} to user ${member.displayName}`);
@@ -202,7 +211,7 @@ class Bot {
 	async renderMessageCommandHelp(msg, page) {
 		const { guild } = msg;
 		this.cleanUpGuildMessageCommandHelp(guild);
-		const commandPrefix = await this.storage.getGuildSettings(guild, 'commandPrefix') || '!';
+		const commandPrefix = await DBStorage.getGuildSettings(guild, 'commandPrefix') || '!';
 		const render = (help) => {
 			return Help.renderHelp(help, commandPrefix);
 		};
@@ -241,7 +250,8 @@ class Bot {
 		if (!(await this.handlePartialMessage(msg))) return;
 		if (msg.author.id == this.bot.user.id) return; // skip self messages
 		const guild = msg.guild;
-		const commandPrefix = await this.storage.getGuildSettings(guild, 'commandPrefix') || '!';
+		const commandPrefix = await DBStorage.getGuildSettings(guild, 'commandPrefix') || '!';
+		const customPrefixOff = await DBStorage.getGuildSettings(guild, 'customPrefixOff');
 		// logger.log(`[bot] guild ${guild.name} is using command prefix ${commandPrefix}`);
 		const isCommand = msg.content.indexOf(commandPrefix) == 0;
 		const isSenderAdmin = msg.member && msg.member.hasPermission('ADMINISTRATOR');
@@ -324,15 +334,16 @@ class Bot {
 					await this.handleMessageCommandGreet(params);
 					break;
 				default:
-					params.command = (command + ' ' + commandArgRaw).trim();
-					await this.handleMessageCustomCommand(params);
+					if(isCommand&&!customPrefixOff){
+						params.command = (command + ' ' + commandArgRaw).trim();
+						await this.handleMessageCustomCommand(params);
+					}
 					break;
 			}
 		} else {
-			const customPrefixOff = await this.storage.getGuildSettings(guild, 'customPrefixOff');
 			// logger.log(`[bot] customPrefixOff: ${customPrefixOff}`);
 			if (customPrefixOff) {
-				const commands = await this.storage.listCustomCommands(guild);
+				const commands = await DBStorage.listCustomCommands(guild);
 				for (let i = 0, command; command = commands[i]; i++) {
 					if (msg.content == command) {
 						// logger.log(`[bot] customPrefixOff command found: ${command}`);
@@ -347,7 +358,7 @@ class Bot {
 		if (!isSenderMod) return this.sendNoPermissionMessage(msg);
 		const prefix = commandArgRaw;
 		if (prefix) {
-			await this.storage.setGuildSettings(guild, 'commandPrefix', prefix);
+			await DBStorage.setGuildSettings(guild, 'commandPrefix', prefix);
 			msg.channel.send(`${prefix} is now the server prefix. \ne.g. use \`${prefix}help\` for help.`);
 		} else {
 			msg.channel.send(Help.renderCommandUsage('prefix', commandPrefix));
@@ -369,7 +380,7 @@ class Bot {
 	}
 	async handleMessageCommandTwitch({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }) {
 		let changed = false;
-		const streamerNames = await this.storage.getTwitchStreamers(guild);
+		const streamerNames = await DBStorage.getTwitchStreamers(guild);
 		const streamerName = commandArg[1];
 		switch (action) {
 			case 'info':
@@ -390,7 +401,7 @@ class Bot {
 			case 'add':
 				if (!isSenderMod) return this.sendNoPermissionMessage(msg);
 				if (streamerName && streamerNames.indexOf(streamerName) < 0) {
-					streamerNames.push(streamerName);
+					streamerNames = await DBStorage.pushTwitchStreamer(guild, streamerName);
 					this.subscribeTwitchStreamChange([streamerName], guild);
 					changed = true;
 					await msg.channel.send(`Twitch Streamer added: ${streamerName}`);
@@ -401,7 +412,7 @@ class Bot {
 			case 'delete':
 				if (!isSenderMod) return this.sendNoPermissionMessage(msg);
 				if (streamerName && streamerNames.indexOf(streamerName) >= 0) {
-					streamerNames.splice(streamerNames.indexOf(streamerName), 1);
+					streamerNames = await DBStorage.pullTwitchStreamer(guild, streamerName);
 					this.unsubscribeTwitchStreamChange([streamerName], guild);
 					changed = true;
 					await msg.channel.send(`Twitch Streamer deleted: ${streamerName}`);
@@ -412,7 +423,6 @@ class Bot {
 		}
 		if (changed) {
 			logger.log(`[bot] twitch_streamers updated: ${JSON.stringify(streamerNames)}`);
-			await this.storage.set(guild, 'twitch_streamers', JSON.stringify(streamerNames));
 		}
 	}
 	async handleMessageCommandPoll({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }) {
@@ -450,12 +460,12 @@ class Bot {
 		});
 	}
 	async handleMessageCommandCustom({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }) {
-		const customPrefixOff = await this.storage.getGuildSettings(guild, 'customPrefixOff');
+		const customPrefixOff = await DBStorage.getGuildSettings(guild, 'customPrefixOff');
 		let [commandName, ...content] = commandArgRaw.split(':');
 		content = content.join(':');
 		switch (action) {
 			case 'list':
-				const commands = await this.storage.listCustomCommands(guild);
+				const commands = await DBStorage.listCustomCommands(guild);
 				// logger.log(`[bot] commands`, commands);
 				await msg.channel.send(``, new Discord.MessageEmbed({
 					title: 'Custom Commands',
@@ -470,7 +480,7 @@ class Bot {
 					await msg.channel.send(Help.renderCommandUsage('custom add', commandPrefix));
 					return false;
 				}
-				await this.storage.setCustomCommand(guild, commandName, content);
+				await DBStorage.setCustomCommand(guild, commandName.trim(), content.trim());
 				await msg.channel.send(`Custom command added by ${msg.author.tag}: ${commandName}`);
 				break;
 			case 'delete':
@@ -480,7 +490,7 @@ class Bot {
 					await msg.channel.send(Help.renderCommandUsage('custom delete', commandPrefix));
 					return false;
 				}
-				await this.storage.deleteCustomCommand(guild, commandName);
+				await DBStorage.deleteCustomCommand(guild, commandName);
 				await msg.channel.send(`Custom command deleted by ${msg.author.tag}: ${commandName}`);
 				break;
 			case 'prefix':
@@ -488,8 +498,8 @@ class Bot {
 				let onOff = commandArg[1];
 				let showUsage = false;
 				switch (onOff) {
-					case 'on': await this.storage.setGuildSettings(guild, 'customPrefixOff', false); break;
-					case 'off': await this.storage.setGuildSettings(guild, 'customPrefixOff', true); break;
+					case 'on': await DBStorage.setGuildSettings(guild, 'customPrefixOff', false); break;
+					case 'off': await DBStorage.setGuildSettings(guild, 'customPrefixOff', true); break;
 					default:
 						showUsage = true;
 						onOff = customPrefixOff ? 'off' : 'on';
@@ -534,7 +544,7 @@ class Bot {
 				if (inThePast) {
 					return await msg.channel.send(`You can't set a remind me in the past!`);
 				}
-				await this.storage.setRemindMe(msg.author.id, reminderName, timeString, timezoneString);
+				await DBStorage.setUserEvent(msg.author.id, reminderName.trim(), timeString.trim(), timezoneString.trim());
 				const t = Time.timeTill(timeString.trim(), timezoneString.trim());
 				await msg.channel.send(`Remind Me \`${reminderName}\` added.\n\`${t}\``);
 				return;
@@ -543,14 +553,15 @@ class Bot {
 					await msg.channel.send(Help.renderCommandUsage('remindme', commandPrefix));
 					return;
 				}
-				await this.storage.deleteRemindMe(msg.author.id, reminderName);
+				await DBStorage.deleteUserEvent(msg.author.id, reminderName);
 				await msg.channel.send(`Remind Me \`${reminderName}\` removed.`);
 				return;
 			case 'list':
-				const reminders = await this.storage.listRemindMes(msg.author.id);
+				const reminders = await DBStorage.listUserEvents(msg.author.id);
+				// console.log('reminders',reminders);
 				await msg.channel.send(``, new Discord.MessageEmbed({
 					title: `Reminders`,
-					description: reminders.map(([reminderName, [time, tz]]) => `${reminderName}\n\`${time} ${tz}\``).join('\n'),
+					description: reminders.map(([reminderName, {timeString, timezoneString}]) => `${reminderName}\n\`${timeString} ${timezoneString}\``).join('\n'),
 				}));
 				return;
 		}
@@ -560,7 +571,7 @@ class Bot {
 		switch (action) {
 			case 'msg':
 				if (!isSenderMod) return this.sendNoPermissionMessage(msg);
-				await this.storage.setGreetingMessage(guild, actionArg);
+				await DBStorage.setGreetingMessage(guild, actionArg.trim());
 				await msg.channel.send(`Greeting message set to: \n ${actionArg}`);
 				break;
 			case 'channel':
@@ -569,7 +580,7 @@ class Bot {
 					const channelId = actionArg;
 					const channel = guild.channels.cache.get(channelId);
 					if (channel) {
-						await this.storage.setGreetingChannel(guild, channelId);
+						await DBStorage.setGreetingChannel(guild, channelId);
 						await msg.channel.send(`Greeting message channel set to: <#${channel.id}>`);
 					} else {
 						await msg.channel.send(`Greeting message channel not set: channel id ${channelId} invalid.`);
@@ -585,9 +596,9 @@ class Bot {
 				}
 				break;
 			default:
-				const greet = await this.storage.getGreetingMessage(guild);
-				if (greet) {
-					await msg.channel.send(greet);
+				const {message} = await DBStorage.getGreetingMessage(guild);
+				if (message) {
+					await msg.channel.send(message);
 				}
 				break;
 		}
@@ -617,7 +628,7 @@ class Bot {
 				if (inThePast) {
 					return await msg.channel.send(`You can't set a remind me in the past!`);
 				}
-				await this.storage.setReminder(guild, msg.channel.id, reminderName, timeString, timezoneString);
+				await DBStorage.setReminder(guild, msg.channel.id, reminderName.trim(), timeString.trim(), timezoneString.trim());
 				const t = Time.timeTill(timeString.trim(), timezoneString.trim());
 				await msg.channel.send(`Reminder \`${reminderName}\` added.\n\`${t}\``);
 				return;
@@ -626,20 +637,23 @@ class Bot {
 					await msg.channel.send(Help.renderCommandUsage('reminder', commandPrefix));
 					return;
 				}
-				await this.storage.deleteReminder(guild, reminderName);
+				await DBStorage.deleteReminder(guild, reminderName);
 				await msg.channel.send(`Reminder \`${reminderName}\` removed.`);
 				return;
 			case 'list':
-				const reminders = await this.storage.listReminders(guild);
+				const reminders = await DBStorage.listReminders(guild);
 				await msg.channel.send(``, new Discord.MessageEmbed({
 					title: `Reminders`,
-					description: reminders.map(([reminderName, [channelId, time, tz]]) => `${reminderName}\n\`${time} ${tz}\``).join('\n'),
+					description: Object.keys(reminders).map(reminderName=>{
+						const {timeString,timezoneString} = reminders[reminderName];
+						return `${reminderName}\n\`${timeString} ${timezoneString}\``;
+					}).join('\n'),
 				}));
 				return;
 			default:
 				// look up saved reminder
 				[reminderName] = commandArgRaw.split(':');
-				[, timeString, timezoneString] = await this.storage.getReminder(guild, reminderName);
+				({timeString, timezoneString} = await DBStorage.getReminder(guild, reminderName));
 				if (timeString && timezoneString) {
 					// logger.log('[bot] reminder found',reminderName,timeString,timezoneString);
 					const t = Time.timeTill(timeString.trim(), timezoneString.trim());
@@ -664,20 +678,20 @@ class Bot {
 						await msg.channel.send(Help.renderCommandUsage('timetill [add|delete]', commandPrefix));
 						return;
 					}
-					await this.storage.setTimeTillEvent(guild, eventName, timeString, timezoneString);
+					await DBStorage.setReminder(guild, eventName.trim(), timeString.trim(), timezoneString.trim());
 					prefix = `Event \`${eventName}\` added.\n`;
 				} else {
 					if (!eventName) {
 						await msg.channel.send(Help.renderCommandUsage('timetill [add|delete]', commandPrefix));
 						return;
 					}
-					await this.storage.deleteTimeTillEvent(guild, eventName);
+					await DBStorage.deleteReminder(guild, eventName);
 					await msg.channel.send(`Event \`${eventName}\` removed.`);
 					return;
 				}
 				break;
 			case 'list':
-				const events = await this.storage.listTimeTillEvents(guild);
+				const events = await DBStorage.listReminders(guild);
 				await msg.channel.send(``, new Discord.MessageEmbed({
 					title: `Events`,
 					description: events.map(([event, [time, tz]]) => `${event}\n\`${time} ${tz}\``).join('\n'),
@@ -687,7 +701,7 @@ class Bot {
 			default:
 				// look up saved timetill event
 				eventName = eventName.trim();
-				[timeString, timezoneString] = await this.storage.getTimeTillEvent(guild, eventName);
+				[timeString, timezoneString] = await DBStorage.getReminder(guild, eventName);
 				if (!(timeString && timezoneString)) {
 					[timeString, timezoneString] = commandArgRaw.split(',');
 					// logger.log(`[bot] timetill regular look up from [${commandArgRaw}]: [${timeString}],[${timezoneString}]`);
@@ -736,7 +750,7 @@ class Bot {
 					await msg.channel.send(`Role not found.`);
 					break;
 				}
-				await this.storage.addRoleAssignment(guild, roleId, emoji);
+				await DBStorage.addRoleAssignment(guild, roleId, emoji);
 				await msg.channel.send(`Role added for react assignment: ${role.name} (emoji: ${emoji})`);
 			}
 				break;
@@ -750,12 +764,12 @@ class Bot {
 					await msg.channel.send(`Role not found.\``);
 					break;
 				}
-				await this.storage.deleteRoleAssignment(guild, roleId, emoji);
+				await DBStorage.deleteRoleAssignment(guild, roleId);
 				await msg.channel.send(`Role deleted for react assignment: ${role.name}`);
 			}
 				break;
 			case 'list': {
-				const roleAssignments = await this.storage.listRoleAssignments(guild);
+				const roleAssignments = await DBStorage.listRoleAssignments(guild);
 				const roleAssignMapById = roleAssignments.reduce((map, role) => {
 					map[role.roleId] = role;
 					return map;
@@ -777,7 +791,7 @@ class Bot {
 				break;
 			case 'post': {
 				const deleteOld = commandArg[1] == 'new';
-				const [channelId, messageId] = await this.storage.getRoleAssignmentMessage(guild);
+				const {channelId, messageId} = await DBStorage.getRoleAssignmentMessage(guild);
 				let roleMessage = null;
 				if (channelId && messageId) {
 					try {
@@ -793,7 +807,7 @@ class Bot {
 						// logger.log(`[bot] find old role message error:`,error);
 					}
 				}
-				const roles = await this.storage.listRoleAssignments(guild);
+				const roles = await DBStorage.listRoleAssignments(guild);
 				const roleMessageEmbed = new Discord.MessageEmbed({
 					title: 'React to get a role!',
 					description: `${roles.map(r => `${r.emoji} - <@&${r.role.id}>`).join('\n')}`
@@ -808,7 +822,7 @@ class Bot {
 					try { if (emoji && emoji.split) emoji = emoji.split(':')[2].split('>')[0]; } catch (err) { }
 					roleMessage.react(emoji || this.findNumberEmoji(i));
 				});
-				await this.storage.setRoleAssignmentMessage(guild, roleMessage.channel.id, roleMessage.id);
+				await DBStorage.setRoleAssignmentMessage(guild, roleMessage.channel.id, roleMessage.id);
 				this.addRoleListener(guild, roleMessage.channel.id, roleMessage.id);
 				msg.delete();
 			}
@@ -840,7 +854,7 @@ class Bot {
 	}
 	async handleMessageCustomCommand({ msg, isSenderAdmin, isSenderMod, command, commandArg, commandArgRaw, emptyCommand, action, guild, commandPrefix }) {
 		// logger.log(`[bot] checking custom command for ${guild.name}: ${command}`);
-		const m = await this.storage.getCustomCommand(guild, command);
+		const m = await DBStorage.getCustomCommand(guild, command);
 		if (m) {
 			await msg.channel.send(m);
 		}
