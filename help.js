@@ -14,7 +14,7 @@ const Help = {
 		},
 		'mine':{
 			command:'mine [width(optional)] [height(optional)] [mine ratio/count(optional)]',
-			desc:'Create a minesweeper board.  Default board is 5x5 with 5% mines, max size is 10x10.\ne.g. \`${commandPrefix}mine 10 10 15\` for 10x10 board with 15 mines\n\`${commandPrefix}mine 5 5 0.5\` for 5x5 board with 5% mines',
+			desc:'Create a minesweeper board.  Default board is 8x8 with 10% mines, max size is 10x10.\ne.g. \`${commandPrefix}mine 10 10 15\` for 10x10 board with 15 mines\n\`${commandPrefix}mine 5 5 0.30\` for 5x5 board with 30% mines',
 		},
 		'youtube':{
 			command:'youtube [query]',

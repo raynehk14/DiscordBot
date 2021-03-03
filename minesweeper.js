@@ -5,8 +5,8 @@ class Minesweeper {
 	mineCharacter = 'x';
 	rowMax = 10;
 	colMax = 10;
-	// 5x5, 5% mine ratio 
-	constructor(row=5,col=5,mineRatioOrCount=0.05){
+	// 8x8, 10% mine ratio 
+	constructor(row=8,col=8,mineRatioOrCount=0.10){
 		// console.log(`new board ${row}x${col}`);
 		this.row = Math.min(this.rowMax,row); this.col = Math.min(this.colMax,col);
 		if(mineRatioOrCount>1){
