@@ -167,6 +167,7 @@ class Bot {
 		setTimeout(() => this.threadMinuteTick(), msTilNextRoundMinute);
 	}
 	async sendTwitchStreamChangeMessage(guild, channel, streamer, stream) {
+		// console.log('streamer',streamer);
 		const tsString = '?' + (Date.now()).toString(16);
 		const embed = new Discord.MessageEmbed({
 			url: `https://twitch.tv/${streamer.name}`,
@@ -181,11 +182,11 @@ class Bot {
 			embed.setTitle(stream.title);
 			embed.setTimestamp(stream.startDate);
 			embed.setDescription(`${streamer.displayName} is playing ${game.name}\n\n${streamer.description}`);
-			embed.setImage(stream.thumbnailUrl.replace('{width}', 600).replace('{height}', 400) + tsString);
+			if(stream.thumbnailUrl) embed.setImage(stream.thumbnailUrl.replace('{width}', 600).replace('{height}', 400) + tsString);
 			channel.send(`${streamer.displayName} is live!`, embed);
 		} else {
 			embed.setTitle(streamer.displayName);
-			embed.setImage(streamer.offlinePlaceholerUrl + tsString);
+			if(streamer.offlinePlaceholerUrl) embed.setImage(streamer.offlinePlaceholerUrl + tsString);
 			embed.setDescription(`${streamer.description}`);
 			channel.send(`${streamer.displayName} is currently offline!`, embed);
 		}
